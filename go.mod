@@ -2,10 +2,6 @@ module github.com/thofma/bibi
 
 go 1.25.0
 
-replace github.com/thofma/bibi/lib/phd => /Users/thofma/software/go/bibi/lib/phd
-replace github.com/thofma/bibi/lib/mr => /Users/thofma/software/go/bibi/lib/mr
-replace github.com/thofma/bibi/util => /Users/thofma/software/go/bibi/util
-
 require (
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.6
