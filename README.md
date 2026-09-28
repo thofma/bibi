@@ -1,3 +1,9 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/bibi-mark-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/bibi-mark-light.svg">
+  <img alt="bibi" src="assets/bibi-mark-light.svg" width="88">
+</picture>
+
 # bibi
 
 `bibi` is a command-line tool that retrieves BibTeX for mathematical literature

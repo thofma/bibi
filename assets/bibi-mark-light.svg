@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 128" role="img" aria-labelledby="title">
+  <title id="title">bibi</title>
+  <g fill="none" stroke="#24292f" stroke-linecap="round" stroke-linejoin="round" stroke-width="8">
+    <path d="M40 20H24v88h16"/>
+    <path d="M120 20h16v88h-16"/>
+    <path d="M72 36v56m0-29c6-8 16-8 22-3 7 6 7 18 0 24-6 5-16 5-22-3"/>
+  </g>
+</svg>
