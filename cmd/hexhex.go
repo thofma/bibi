@@ -43,7 +43,9 @@ func runZB(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("zbMath search query cannot be empty")
 	}
 
+	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Searching zbMATH Open...")
 	response, err := zbSearch(query)
+	spinner.Stop()
 	if err != nil {
 		return fmt.Errorf("search zbMATH: %w", err)
 	}

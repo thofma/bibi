@@ -44,7 +44,9 @@ func runMR(cmd *cobra.Command, args []string) error {
 		year = dashToEmpty(args[2])
 	}
 
+	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Searching MR Lookup...")
 	entries, err := mrQuery(author, year, title)
+	spinner.Stop()
 	if err != nil {
 		return fmt.Errorf("query MR Lookup: %w", err)
 	}

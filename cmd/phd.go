@@ -34,7 +34,9 @@ func runPhD(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("a mathematician name is required")
 	}
 
+	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Searching Mathematics Genealogy Project...")
 	entries, err := phdQuery(name)
+	spinner.Stop()
 	if err != nil {
 		return fmt.Errorf("query Mathematics Genealogy Project: %w", err)
 	}
