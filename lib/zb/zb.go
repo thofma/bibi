@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,8 @@ const (
 	defaultZBAPIBaseURL    = "https://api.zbmath.org/v1/document"
 	defaultZBBibTeXBaseURL = "https://zbmath.org/bibtexoutput/"
 	zbHTTPTimeout          = 15 * time.Second
+	// MaxSearchResults bounds the number of results requested for an interactive search.
+	MaxSearchResults = 10
 )
 
 var (
@@ -26,6 +29,7 @@ var (
 func getZBResponseAnything(search string) (string, error) {
 	query := url.Values{}
 	query.Set("search_string", search)
+	query.Set("results_per_page", strconv.Itoa(MaxSearchResults))
 	return getZBAPI("_search", query)
 }
 
@@ -74,20 +78,30 @@ func getZBURL(endpoint string, accept string) (string, error) {
 	return string(body), nil
 }
 
-func parseZBMultiResponse(body string) ([]*mr.Entry, error) {
+// Search retrieves and decodes a zbMath response for the supplied query.
+func Search(search string) (Response, error) {
+	search = strings.TrimSpace(search)
+	if search == "" {
+		return Response{}, fmt.Errorf("zbMath search query cannot be empty")
+	}
+
+	body, err := getZBResponseAnything(search)
+	if err != nil {
+		return Response{}, err
+	}
 	response, err := ParseToStruct(body)
 	if err != nil {
-		return nil, fmt.Errorf("parse zbMath search response: %w", err)
+		return Response{}, fmt.Errorf("parse zbMath search response: %w", err)
 	}
-	return ZBParseJSONInternal(response.Result)
+	return response, nil
 }
 
 func ZBAnything(search string) ([]*mr.Entry, error) {
-	response, err := getZBResponseAnything(search)
+	response, err := Search(search)
 	if err != nil {
 		return nil, err
 	}
-	return parseZBMultiResponse(response)
+	return ZBParseJSONInternal(response.Result)
 }
 
 func ZBGetBibtex(id string) (string, error) {
@@ -99,25 +113,6 @@ func ZBGetBibtex(id string) (string, error) {
 	query.Set("q", id)
 	endpoint.RawQuery = query.Encode()
 	return getZBURL(endpoint.String(), "text/plain")
-}
-
-func Main(args []string) {
-	body := strings.Join(args, " ")
-	resp, err := ParseToStruct(body)
-	if err != nil {
-		fmt.Println("invalid zbMath response:", err)
-		return
-	}
-	if len(resp.Result) == 0 {
-		fmt.Println("no zbMath results")
-		return
-	}
-	entry, err := ItemToBibEntry(resp.Result[0], resp.Result...)
-	if err != nil {
-		fmt.Println("unable to create BibTeX entry:", err)
-		return
-	}
-	fmt.Print(entry.PrettyString())
 }
 
 func ZBParseJSONInternal(items []Item) ([]*mr.Entry, error) {

@@ -29,6 +29,9 @@ func TestGetZBResponseAnythingBuildsRequest(t *testing.T) {
 		if got, want := r.URL.Query().Get("search_string"), "Tommy Hofmann"; got != want {
 			t.Errorf("search_string = %q, want %q", got, want)
 		}
+		if got, want := r.URL.Query().Get("results_per_page"), "10"; got != want {
+			t.Errorf("results_per_page = %q, want %q", got, want)
+		}
 		if got, want := r.Header.Get("Accept"), "application/json"; got != want {
 			t.Errorf("Accept = %q, want %q", got, want)
 		}
@@ -109,6 +112,16 @@ func TestZBAnythingParsesTypedResponse(t *testing.T) {
 	}
 	if entry.Doi == nil || *entry.Doi != "10.1000/example" {
 		t.Errorf("ZBAnything() DOI = %v, want parsed DOI", entry.Doi)
+	}
+}
+
+func TestSearchRejectsEmptyQuery(t *testing.T) {
+	_, err := Search(" \t ")
+	if err == nil {
+		t.Fatal("Search() error = nil, want empty-query error")
+	}
+	if !strings.Contains(err.Error(), "cannot be empty") {
+		t.Errorf("Search() error = %q, want empty-query context", err)
 	}
 }
 

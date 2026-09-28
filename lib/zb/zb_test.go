@@ -1625,6 +1625,41 @@ func TestArticleWithoutSeriesDoesNotPanic(t *testing.T) {
 	AssertValidBibTeX(t, bib)
 }
 
+func TestArXivPreprintWithoutDocumentType(t *testing.T) {
+	item := Item{
+		Contributors: Contributors{Authors: []Author{
+			{Name: "Tommy Hofmann"},
+			{Name: "John Nicholson"},
+		}},
+		Database:   "arXiv",
+		ID:         902789343,
+		Identifier: "arXiv:2507.15999",
+		Links: []Link{{
+			Identifier: "2507.15999",
+			Type:       "arxiv",
+			URL:        "https://arxiv.org/abs/2507.15999",
+		}},
+		Title: Title{Title: "Exotic presentations of quaternion groups and Wall's D2 problem"},
+		Year:  "2025",
+	}
+
+	bib, err := ItemToBibEntry(item)
+	if err != nil {
+		t.Fatalf("ItemToBibEntry() error = %v", err)
+	}
+
+	entry := bibtex.NewBibEntry("misc", "zbMATH902789343")
+	entry.AddField("author", bibtex.NewBibConst("Tommy Hofmann and John Nicholson"))
+	entry.AddField("title", bibtex.NewBibConst("Exotic presentations of quaternion groups and Wall's D2 problem"))
+	entry.AddField("year", bibtex.NewBibConst("2025"))
+	entry.AddField("eprint", bibtex.NewBibConst("2507.15999"))
+	entry.AddField("archiveprefix", bibtex.NewBibConst("arXiv"))
+	entry.AddField("url", bibtex.NewBibConst("https://arxiv.org/abs/2507.15999"))
+	entry.AddField("zbmath", bibtex.NewBibConst("902789343"))
+	AssertEntriesEqual(t, entry, bib)
+	AssertValidBibTeX(t, bib)
+}
+
 func TestProceedingsWithoutBookTitleReturnsError(t *testing.T) {
 	item := Item{
 		DocumentType: DocumentType{Code: "a"},

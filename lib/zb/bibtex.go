@@ -15,9 +15,17 @@ func ItemToBibEntry(item Item, relatedItems ...Item) (*bibtex.BibEntry, error) {
 		return ItemToArticle(item), nil
 	case "a":
 		return ItemToProceedingsArticle(item, relatedItems...)
+	case "p":
+		return ItemToPreprint(item), nil
+	case "":
+		if isArXivPreprint(item) {
+			return ItemToPreprint(item), nil
+		}
 	default:
 		return nil, fmt.Errorf("unsupported zbMath document type %q", item.DocumentType.Code)
 	}
+
+	return nil, fmt.Errorf("unsupported zbMath document type %q", item.DocumentType.Code)
 }
 
 func ItemToArticle(item Item) *bibtex.BibEntry {
@@ -68,6 +76,25 @@ func ItemToProceedingsArticle(item Item, relatedItems ...Item) (*bibtex.BibEntry
 	addBibField(entry, "volume", ItemGetSeriesVolume(seriesItem))
 
 	return entry, nil
+}
+
+// ItemToPreprint returns a BibTeX misc entry for a zbMath preprint record.
+// The public API currently omits document_type for some arXiv records.
+func ItemToPreprint(item Item) *bibtex.BibEntry {
+	entry := newBibEntry("misc", item)
+	addCommonFields(entry, item)
+	addBibField(entry, "year", item.Year)
+
+	arXivID, arXivURL := ItemGetArXiv(item)
+	if arXivID != "" {
+		addBibField(entry, "eprint", arXivID)
+		addBibField(entry, "archiveprefix", "arXiv")
+	} else {
+		addBibField(entry, "howpublished", item.Source.Source)
+	}
+	addBibField(entry, "url", arXivURL)
+
+	return entry
 }
 
 func newBibEntry(entryType string, item Item) *bibtex.BibEntry {
@@ -197,6 +224,37 @@ func ItemGetDOI(item Item) (string, string) {
 		}
 	}
 	return "", ""
+}
+
+// ItemGetArXiv returns the arXiv identifier and canonical URL, if present.
+func ItemGetArXiv(item Item) (string, string) {
+	for _, link := range item.Links {
+		if strings.EqualFold(strings.TrimSpace(link.Type), "arxiv") {
+			return normalizeArXivID(link.Identifier), strings.TrimSpace(link.URL)
+		}
+	}
+
+	identifier := strings.TrimSpace(item.Identifier)
+	if strings.HasPrefix(strings.ToLower(identifier), "arxiv:") {
+		return normalizeArXivID(identifier), ""
+	}
+	return "", ""
+}
+
+func isArXivPreprint(item Item) bool {
+	if strings.EqualFold(strings.TrimSpace(item.Database), "arxiv") {
+		return true
+	}
+	arXivID, _ := ItemGetArXiv(item)
+	return arXivID != ""
+}
+
+func normalizeArXivID(identifier string) string {
+	identifier = strings.TrimSpace(identifier)
+	if len(identifier) >= len("arxiv:") && strings.EqualFold(identifier[:len("arxiv:")], "arxiv:") {
+		return strings.TrimSpace(identifier[len("arxiv:"):])
+	}
+	return identifier
 }
 
 func firstSeries(item Item) (Series, bool) {
