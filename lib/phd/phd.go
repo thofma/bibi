@@ -1,299 +1,297 @@
 package phd
 
 import (
-	_"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
-	"html"
-	_"os"
-	_"reflect"
-	"strings"
-	"unicode"
+	"regexp"
 	"strconv"
+	"strings"
+	"time"
+	"unicode"
+
 	"github.com/nickng/bibtex"
-	"os"
-	"github.com/thofma/bibi/util"
 )
 
+const (
+	defaultMGPSearchURL = "https://www.genealogy.math.ndsu.nodak.edu/quickSearch.php"
+	defaultMGPEntryURL  = "https://www.genealogy.math.ndsu.nodak.edu/id.php"
+	mgpHTTPTimeout      = 15 * time.Second
+)
+
+var (
+	mgpSearchURL  = defaultMGPSearchURL
+	mgpEntryURL   = defaultMGPEntryURL
+	mgpHTTPClient = &http.Client{Timeout: mgpHTTPTimeout}
+
+	resultCountPattern = regexp.MustCompile(`(?is)Your\s+search\s+has\s+found\s+(?:(\d+)|no)\s+records?`)
+	resultRowPattern   = regexp.MustCompile(`(?is)<tr\b[^>]*>\s*<td\b[^>]*>\s*<a\b[^>]*href\s*=\s*["'][^"']*id\.php\?id=([^&"']+)[^"']*["'][^>]*>(.*?)</a>\s*</td>\s*<td\b[^>]*>(.*?)</td>\s*<td\b[^>]*>(.*?)</td>\s*</tr>`)
+	headingPattern     = regexp.MustCompile(`(?is)<h2\b[^>]*>(.*?)</h2>`)
+	thesisTitlePattern = regexp.MustCompile(`(?is)<span\b[^>]*\bid\s*=\s*(?:"thesisTitle"|'thesisTitle')[^>]*>(.*?)</span>`)
+	universityPattern  = regexp.MustCompile(`(?is)<span\b[^>]*color\s*:\s*#006633[^>]*>(.*?)</span>`)
+	yearPattern        = regexp.MustCompile(`\b(?:1[5-9]|20|21)\d{2}\b`)
+	htmlTagPattern     = regexp.MustCompile(`(?is)<[^>]*>`)
+)
+
+// MGPEntry is a thesis record returned by the Mathematics Genealogy Project.
 type MGPEntry struct {
-	author string
-	year string
-	uni string
-	id string
-	title string
-	bib *bibtex.BibEntry
+	Author     string
+	Year       string
+	University string
+	ID         string
+	Title      string
+	BibTeX     *bibtex.BibEntry
 }
 
+// MGPQuery retrieves the raw MGP search response for author.
 func MGPQuery(author string) (string, error) {
-	baseURL := "https://www.genealogy.math.ndsu.nodak.edu/quickSearch.php"
-	data := url.Values{}
-	data.Add("searchTerms", author)
-	data.Set("Submit", "Search")
+	author = strings.TrimSpace(author)
+	if author == "" {
+		return "", fmt.Errorf("MGP search terms are required")
+	}
 
-	reqURL := baseURL + "?" + data.Encode()
+	return mgpGet(mgpSearchURL, url.Values{
+		"searchTerms": {author},
+		"Submit":      {"Search"},
+	})
+}
 
-	result := ""
-
-	// Make the request
-	resp, err := http.Get(reqURL)
+// MGPQueryAndResponse retrieves and parses MGP search results.
+func MGPQueryAndResponse(author string) ([]MGPEntry, error) {
+	response, err := MGPQuery(author)
 	if err != nil {
-		return result, fmt.Errorf("HTTP request failed: %v", err)
+		return nil, err
+	}
+	entries, err := MGPResponse(response)
+	if err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+// MGPResponse parses either a single MGP thesis page or a multiple-result page.
+func MGPResponse(text string) ([]MGPEntry, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, fmt.Errorf("parse MGP response: response is empty")
+	}
+
+	lowerText := strings.ToLower(text)
+	if strings.Contains(lowerText, "thesistitle") {
+		entry, err := MGPEntryGetFromSingleHit(text)
+		if err != nil {
+			return nil, fmt.Errorf("parse MGP single result: %w", err)
+		}
+		entry.BibTeX = CreateBibEntryForThesis(entry.Author, entry.Year, entry.Title, entry.University)
+		return []MGPEntry{entry}, nil
+	}
+	if strings.Contains(lowerText, "your search has found") {
+		return parseMGPResultList(text)
+	}
+
+	return nil, fmt.Errorf("parse MGP response: unrecognized result page")
+}
+
+func parseMGPResultList(text string) ([]MGPEntry, error) {
+	countMatch := resultCountPattern.FindStringSubmatch(text)
+	if len(countMatch) != 2 {
+		return nil, fmt.Errorf("parse MGP response: could not read result count")
+	}
+
+	count := 0
+	if countMatch[1] != "" {
+		var err error
+		count, err = strconv.Atoi(countMatch[1])
+		if err != nil {
+			return nil, fmt.Errorf("parse MGP response: invalid result count %q: %w", countMatch[1], err)
+		}
+	}
+	if count == 0 {
+		return []MGPEntry{}, nil
+	}
+
+	rowMatches := resultRowPattern.FindAllStringSubmatch(text, -1)
+	entries := make([]MGPEntry, 0, len(rowMatches))
+	for _, row := range rowMatches {
+		if len(row) != 5 {
+			return nil, fmt.Errorf("parse MGP response: malformed search-result row")
+		}
+		entry := MGPEntry{
+			ID:         cleanHTMLText(row[1]),
+			Author:     cleanHTMLText(row[2]),
+			University: cleanHTMLText(row[3]),
+			Year:       cleanHTMLText(row[4]),
+		}
+		if entry.ID == "" || entry.Author == "" {
+			return nil, fmt.Errorf("parse MGP response: search-result row is missing an id or author")
+		}
+		entries = append(entries, entry)
+	}
+
+	if len(entries) != count {
+		return nil, fmt.Errorf("parse MGP response: expected %d records, parsed %d", count, len(entries))
+	}
+	return entries, nil
+}
+
+// MGPEntryGetFromSingleHit parses one MGP thesis page.
+func MGPEntryGetFromSingleHit(text string) (MGPEntry, error) {
+	author := extractHTMLMatch(headingPattern, text)
+	if author == "" {
+		return MGPEntry{}, fmt.Errorf("could not find thesis author")
+	}
+
+	title := extractHTMLMatch(thesisTitlePattern, text)
+	if title == "" {
+		return MGPEntry{}, fmt.Errorf("could not find thesis title")
+	}
+
+	entry := MGPEntry{Author: author, Title: title}
+	if match := universityPattern.FindStringSubmatchIndex(text); len(match) >= 4 {
+		entry.University = cleanHTMLText(text[match[2]:match[3]])
+		remainder := text[match[1]:]
+		if closingSpan := strings.Index(strings.ToLower(remainder), "</span>"); closingSpan >= 0 {
+			entry.Year = yearPattern.FindString(remainder[:closingSpan])
+		}
+	}
+
+	return entry, nil
+}
+
+// MGPEntryGetBibtex retrieves a result page when necessary and creates its BibTeX entry.
+func MGPEntryGetBibtex(entry MGPEntry) (*bibtex.BibEntry, error) {
+	if entry.BibTeX != nil {
+		return entry.BibTeX, nil
+	}
+
+	id := strings.TrimSpace(entry.ID)
+	if id == "" {
+		return nil, fmt.Errorf("MGP result has no id")
+	}
+
+	text, err := mgpGet(mgpEntryURL, url.Values{"id": {id}})
+	if err != nil {
+		return nil, fmt.Errorf("retrieve MGP result %q: %w", id, err)
+	}
+
+	detail, err := MGPEntryGetFromSingleHit(text)
+	if err != nil {
+		return nil, fmt.Errorf("parse MGP result %q: %w", id, err)
+	}
+	return CreateBibEntryForThesis(detail.Author, detail.Year, detail.Title, detail.University), nil
+}
+
+func mgpGet(baseURL string, values url.Values) (string, error) {
+	endpoint, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("parse MGP URL: %w", err)
+	}
+	query := endpoint.Query()
+	for key, values := range values {
+		query.Del(key)
+		for _, value := range values {
+			query.Add(key, value)
+		}
+	}
+	endpoint.RawQuery = query.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return "", fmt.Errorf("create MGP request: %w", err)
+	}
+	resp, err := mgpHTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request MGP: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return result, fmt.Errorf("non-OK HTTP status: %s", resp.Status)
-	}
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return result, fmt.Errorf("failed to read response body: %v", err)
+		return "", fmt.Errorf("read MGP response: %w", err)
 	}
-
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("MGP returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
 	return string(body), nil
 }
 
-func MGPQueryAndResponse(author string) ([]MGPEntry, error) {
-	resp, _ := MGPQuery(author)
-	res, _ := MGPResponse(resp)
-	return res, nil
-}
-
-func MGPResponse(text string) ([]MGPEntry, error) {
-	var result []MGPEntry
-
-	if strings.Contains(text, "Dissertation") {
-		ent := MGPEntryGetFromSingleHit(text)
-		//fmt.Println(ent)
-		ent.bib = CreateBibEntryForThesis(ent.author, ent.year, ent.title, ent.uni)
-		return []MGPEntry{ent}, nil
+// CreateBibEntryForThesis creates a standard BibTeX phdthesis entry.
+func CreateBibEntryForThesis(author, year, title, university string) *bibtex.BibEntry {
+	key := thesisCitationKey(author, year)
+	entry := bibtex.NewBibEntry("phdthesis", key)
+	if author = strings.TrimSpace(author); author != "" {
+		entry.AddField("author", bibtex.NewBibConst(author))
 	}
-
-	if strings.Contains(text, "Your search has found") {
-		_, after, _ := strings.Cut(text, "Your search has found")
-		//fmt.Println(after)
-		nresult, _, _ := strings.Cut(after, "records")
-		nnresult, _ := strconv.Atoi(strings.TrimSpace(nresult))
-		//fmt.Println(nnresult)
-		if nnresult > 0 {
-			result = make([]MGPEntry, nnresult)
-			splitted := strings.Split(text, "<tr><td>")
-			// <a href="id.php?id=27377">Hofmann, Bernd</a></td>
-			// <td>Georg-August-Universit&auml;t G&ouml;ttingen</td>
-			// <td>1997</td></tr>\n\n\n
-			for i := 1; i < len(splitted); i++ {
-				id := strings.SplitN(splitted[i], "\"", 3)[1]
-				id = strings.Split(id, "=")[1]
-				id  = strings.TrimSpace(id)
-				_, name, _ := strings.Cut(splitted[i], ">")
-				name, _, _ = strings.Cut(name, "<")
-				name  = html.UnescapeString(strings.TrimSpace(name))
-				year, uni, _ := strings.Cut(splitted[i], "<td>")
-				uni, year, _ = strings.Cut(uni, "</td>\n<td>")
-				year, _, _ = strings.Cut(year, "</td></tr>")
-				year = html.UnescapeString(strings.TrimSpace(year))
-				uni = html.UnescapeString(strings.TrimSpace(uni))
-				//fmt.Println("id: ", id, " name ", name)
-				//fmt.Println("uni: ", uni, " year ", year)
-				ent := MGPEntry{id: id, author: name, uni: uni, year: year}
-				result[i - 1] = ent
-			}
-		}
+	if title = strings.TrimSpace(title); title != "" {
+		entry.AddField("title", bibtex.NewBibConst(BibtexEncodeTitle(title)))
 	}
-	//fmt.Println(result)
-
-	return result, nil
-}
-
-func MGPEntryGetFromSingleHit(text string) MGPEntry {
-	// only one hit and we found it
-	_, after, _ := strings.Cut(text, "<div style=\"text-align: center\"><span style=\"color: #000066\">")
-	_, after, _ = strings.Cut(after, ":</span> <span style=\"font-style:italic\" id=\"thesisTitle\">")
-	title, _, _ := strings.Cut(after, "</span></div>")
-	title = html.UnescapeString(strings.TrimSpace(title))
-	_, after, _ = strings.Cut(text, "<h2 style=\"text-align: center; margin-bottom: 0.5ex; margin-top: 1ex\">")
-	var uni string
-	author, after, _ := strings.Cut(after, "</h2>")
-	// Unescape HTML and remove spurious double spaces
-	author = strings.Join(strings.Fields(html.UnescapeString(author)), " ")
-	uni, after, _ = strings.Cut(after, "</span>")
-	year, after, _ := strings.Cut(after, "</span")
-	year = strings.TrimSpace(year)
-	lastInd := strings.LastIndex(uni, ">")
-	uni = uni[lastInd + 1:]
-	// Unescape HTML
-	uni = html.UnescapeString(strings.TrimSpace(uni))
-	return MGPEntry{author: author, title: title, year: year, uni: uni}
-}
-
-func MGPEntryGetBibtex(entry MGPEntry) (*bibtex.BibEntry, error) {
-	if entry.bib != nil {
-		return entry.bib, nil
+	if year = strings.TrimSpace(year); year != "" {
+		entry.AddField("year", bibtex.NewBibConst(year))
 	}
-	//fmt.Println("bibentry not nil")
-	baseURL := "https://www.genealogy.math.ndsu.nodak.edu/id.php"
-	data := url.Values{}
-	data.Set("id", entry.id)
-
-	reqURL := baseURL + "?" + data.Encode()
-
-	result := bibtex.BibEntry{}
-
-	// Make the request
-	resp, err := http.Get(reqURL)
-	if err != nil {
-		return &result, fmt.Errorf("HTTP request failed: %v", err)
+	if university = strings.TrimSpace(university); university != "" {
+		entry.AddField("school", bibtex.NewBibConst(university))
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return &result, fmt.Errorf("non-OK HTTP status: %s", resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return &result, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	text := string(body)
-
-	//fmt.Println(text)
-
-	_, after, _ := strings.Cut(text, "<div style=\"text-align: center\"><span style=\"color: #000066\">")
-	_, after, _ = strings.Cut(after, ":</span> <span style=\"font-style:italic\" id=\"thesisTitle\">")
-	title, _, _ := strings.Cut(after, "</span></div>")
-	title = html.UnescapeString(strings.TrimSpace(title))
-
-	res := CreateBibEntryForThesis(entry.author, entry.year, title, entry.uni)
-	//fmt.Println(kind)
-	//fmt.Println(title)
-	return res, nil
-}
-
-func CreateBibEntryForThesis(author string, year string, title string, university string) *bibtex.BibEntry {
-	a, _, _ := strings.Cut(author, ",")
-	a = strings.TrimSpace(a)
-	entry := bibtex.NewBibEntry("thesis", fmt.Sprintf("%v%v", a, year))
-	entry.AddField("author", bibtex.NewBibConst(author))
-	entry.AddField("title", bibtex.NewBibConst(BibtexEncodeTitle(title)))
-	entry.AddField("year", bibtex.NewBibConst(year))
-	entry.AddField("school", bibtex.NewBibConst(university))
 	return entry
 }
 
-func BibtexEncodeTitle(title string) string {
-	words := strings.Split(title, " ")
-	res := ""
-	for i := 0; i < len(words); i++ {
-		 res = res + " " + BibtexifyWord(words[i])
+func thesisCitationKey(author, year string) string {
+	familyName, _, _ := strings.Cut(author, ",")
+	familyName = strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return r
+		}
+		return -1
+	}, familyName)
+	if familyName == "" {
+		familyName = "thesis"
 	}
-	res = strings.TrimSpace(res)
-	return res
+	return familyName + strings.TrimSpace(year)
+}
+
+// BibtexEncodeTitle preserves capitalized words in BibTeX title fields.
+func BibtexEncodeTitle(title string) string {
+	words := strings.Fields(title)
+	for i, word := range words {
+		words[i] = BibtexifyWord(word)
+	}
+	return strings.Join(words, " ")
 }
 
 func BibtexifyWord(word string) string {
-	wrunes := []rune(word)
-	res := ""
-	upper := false	
-	for i := 0; i < len(wrunes); i++ {
-		if unicode.IsUpper(wrunes[i]) && !upper {
-			res = res + "{" + string(wrunes[i])
-			upper = true
-			if i == len(wrunes) - 1 {
-				res = res + "}"
+	var result strings.Builder
+	inUpperRun := false
+	for _, r := range word {
+		if unicode.IsUpper(r) {
+			if !inUpperRun {
+				result.WriteRune('{')
+				inUpperRun = true
 			}
-		} else if unicode.IsUpper(wrunes[i]) && upper {
-			res = res + string(wrunes[i])
-			if i == len(wrunes) - 1 {
-				res = res + "}"
-			}
-		} else if !unicode.IsUpper(wrunes[i]) && upper {
-			res = res + "}" + string(wrunes[i])
-			upper = false
-		} else {
-			res = res + string(wrunes[i])
+			result.WriteRune(r)
+			continue
 		}
+		if inUpperRun {
+			result.WriteRune('}')
+			inUpperRun = false
+		}
+		result.WriteRune(r)
 	}
-	return res
+	if inUpperRun {
+		result.WriteRune('}')
+	}
+	return result.String()
 }
 
-func Main(args []string) {
-	resp, _ := MGPQueryAndResponse(strings.Join(args, " "))
-	if len(resp) == 0 {
-		os.Exit(0)
+func extractHTMLMatch(pattern *regexp.Regexp, text string) string {
+	match := pattern.FindStringSubmatch(text)
+	if len(match) < 2 {
+		return ""
 	}
-	if len(resp) == 1 {
-		res, _ := MGPEntryGetBibtex(resp[0])
-		fmt.Print(res)
-		os.Exit(1)
-	}
-	if len(resp) > 1 {
-		choices := make([]string, len(resp))
-		for i := 0; i < len(resp); i++ {
-			choices[i] = resp[i].author
-			if resp[i].year != "" {
-				choices[i] = choices[i] + ", " + resp[i].year
-			}
-			if resp[i].uni != "" {
-				choices[i] = choices[i] + ", " + resp[i].uni
-			}
-		}
-		choice := util.RunChooser(choices)
-		res, _ := MGPEntryGetBibtex(resp[choice])
-		fmt.Print(res)
-		os.Exit(1)
-	}
+	return cleanHTMLText(match[1])
 }
 
-// func MGPEntryGetBibtex
-// use id to retrieve Bibtex
-//
-// 					https://www.genealogy.math.ndsu.nodak.edu/id.php?id=204187
-// 
-// 					response
-//
-// <div id="paddingWrapper">
-// <script>
-// 	MathJax = {
-// tex: {
-// 	inlineMath: [['$', '$'], ['\\(', '\\)']]
-// },
-// svg: {
-// 	fontCache: 'global'
-// }
-// };
-// </script>
-// <script id="MathJax-script" async="" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-// 
-// 
-// <h2 style="text-align: center; margin-bottom: 0.5ex; margin-top: 1ex">
-// Tommy  Hofmann </h2>
-// 
-// <p style="text-align: center; margin-top: 0; margin-bottom: 0px; font-size: small">
-//  <a href="http://www.ams.org/mathscinet/MRAuthorID/1074375">MathSciNet</a>
-// </p>
-// 
-// <div style="margin-left: auto; margin-right: auto; width: 300px"><hr style="width: 300px; height: 0; border-style: solid; border-width: 2px 0 0 0; color: gray; background-color: gray"></div>
-// 
-// <div style="line-height: 30px; text-align: center; margin-bottom: 1ex">
-//   <span style="margin-right: 0.5em">Dr. rer. nat. <span style="color:
-//   #006633; margin-left: 0.5em">Technische Universität Kaiserslautern</span> 2016</span>
-// 
-// <img src="img/flags/Germany.gif" alt="Germany" width="50" height="30" style="border: 0; vertical-align: middle" title="Germany">
-// </div>
-// 
-// 
-// <div style="text-align: center"><span style="color: #000066">Dissertation:</span> <span style="font-style:italic" id="thesisTitle">
-// 
-// Integrality of representations of finite groups</span></div>
-// 
-// <p style="text-align: center; line-height: 2.75ex">Advisor 1: <a href="id.php?id=28657">Claus  Fieker</a><br></p><p style="text-align: center">No students known.</p>
-// <p style="font-size: small; text-align: center">If you have additional information or
-//  corrections regarding this mathematician, please use the <a href="submit-data.php?id=204187&amp;edit=0">update form</a>. To submit students of this
-//  mathematician, please use the <a href="submit-data.php?id=NEW&amp;edit=0">new
-// 	    data form</a>, noting this mathematician's MGP ID of 204187 for the advisor ID.</p>
-// 
-// </div>
-// //
+func cleanHTMLText(value string) string {
+	value = htmlTagPattern.ReplaceAllString(value, " ")
+	value = html.UnescapeString(value)
+	return strings.Join(strings.Fields(value), " ")
+}

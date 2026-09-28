@@ -1,16 +1,14 @@
 package util
 
 import (
-	_"encoding/json"
 	"fmt"
 	"io"
-	_"os"
-	_"reflect"
+	"os"
 	"strings"
+
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-  "github.com/charmbracelet/lipgloss"
-	"os"
+	"github.com/charmbracelet/lipgloss"
 )
 
 const listHeight = 14
@@ -21,12 +19,11 @@ var (
 	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("202"))
 	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
 	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
-	quitTextStyle     = lipgloss.NewStyle().Margin(1, 0, 2, 4)
 )
 
 type item string
 
-func (i item) FilterValue() string { return "" }
+func (i item) FilterValue() string { return string(i) }
 
 type itemDelegate struct{}
 
@@ -39,29 +36,23 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		return
 	}
 
-	//str := fmt.Sprintf("%d. %s", index+1, i)
-	str := fmt.Sprintf("%s", i)
-
-	fn := itemStyle.Render
+	render := itemStyle.Render
 	if index == m.Index() {
-		fn = func(s ...string) string {
-			return selectedItemStyle.Render("> " + strings.Join(s, " "))
+		render = func(values ...string) string {
+			return selectedItemStyle.Render("> " + strings.Join(values, " "))
 		}
 	}
-
-	fmt.Fprint(w, fn(str))
+	_, _ = fmt.Fprint(w, render(string(i)))
 }
 
-
 type model struct {
-	list     list.Model
-	choice   string
-	choicee  int
-	quitting bool
+	list        list.Model
+	choiceIndex int
+	selected    bool
+	quitting    bool
 }
 
 func (m model) Init() tea.Cmd {
-	m.choicee = -1
 	return nil
 }
 
@@ -70,50 +61,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.list.SetWidth(msg.Width)
 		return m, nil
-
 	case tea.KeyMsg:
-		switch keypress := msg.String(); keypress {
+		switch msg.String() {
 		case "q", "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
-
 		case "enter":
-			i, ok := m.list.SelectedItem().(item)
-			if ok {
-				m.choice = string(i)
-				m.choicee = m.list.Index()
+			if _, ok := m.list.SelectedItem().(item); ok {
+				m.choiceIndex = m.list.Index()
+				m.selected = true
 			}
 			return m, tea.Quit
 		}
 	}
 
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
+	var command tea.Cmd
+	m.list, command = m.list.Update(msg)
+	return m, command
 }
 
 func (m model) View() string {
-	if m.choice != "" {
+	if m.selected || m.quitting {
 		return ""
-		return quitTextStyle.Render(fmt.Sprintf("%s %v? Sounds good to me.", m.choice, m.choicee))
-	}
-	if m.quitting {
-		m.choicee = -1
-		return ""
-		return quitTextStyle.Render("Not hungry? That’s cool.")
 	}
 	return "\n" + m.list.View()
 }
 
 func CreateList(title string, items []string) model {
-	items_conv := make([]list.Item, len(items))
-	for i := 0; i < len(items); i++ {
-		items_conv[i] = item(items[i])
+	listItems := make([]list.Item, len(items))
+	for i, value := range items {
+		listItems[i] = item(value)
 	}
 
 	const defaultWidth = 20
-
-	l := list.New(items_conv, itemDelegate{}, defaultWidth, listHeight)
+	l := list.New(listItems, itemDelegate{}, defaultWidth, listHeight)
 	l.Title = title
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(false)
@@ -121,26 +102,31 @@ func CreateList(title string, items []string) model {
 	l.Styles.PaginationStyle = paginationStyle
 	l.Styles.HelpStyle = helpStyle
 
-	m := model{list: l}
-
-	return m
+	return model{list: l}
 }
 
-func RunChooser(choices []string) int {
-	m := CreateList("Choose author", choices)
-	p := tea.NewProgram(m)
+// RunChooser presents choices interactively and returns the selected index.
+// The interactive UI is written to stderr so stdout remains available for BibTeX.
+func RunChooser(choices []string) (int, error) {
+	if len(choices) == 0 {
+		return -1, fmt.Errorf("chooser requires at least one option")
+	}
 
-	// StartReturningModel returns the model as a tea.Model.
-	mm, err := p.StartReturningModel()
+	program := tea.NewProgram(CreateList("Choose result", choices), tea.WithOutput(os.Stderr))
+	finalModel, err := program.StartReturningModel()
 	if err != nil {
-		fmt.Println("Oh no:", err)
-		os.Exit(1)
+		return -1, fmt.Errorf("run chooser: %w", err)
 	}
-	// Assert the final tea.Model to our local model and print the choice.
-	m, _ = mm.(model)
-	if m.choice != "" {
-		return m.choicee
-	} else {
-		return -1
+	return chooserSelection(finalModel)
+}
+
+func chooserSelection(finalModel tea.Model) (int, error) {
+	m, ok := finalModel.(model)
+	if !ok {
+		return -1, fmt.Errorf("read chooser result: unexpected model %T", finalModel)
 	}
+	if !m.selected {
+		return -1, nil
+	}
+	return m.choiceIndex, nil
 }

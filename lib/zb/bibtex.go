@@ -15,6 +15,8 @@ func ItemToBibEntry(item Item, relatedItems ...Item) (*bibtex.BibEntry, error) {
 		return ItemToArticle(item), nil
 	case "a":
 		return ItemToProceedingsArticle(item, relatedItems...)
+	case "b":
+		return ItemToBook(item), nil
 	case "p":
 		return ItemToPreprint(item), nil
 	case "":
@@ -49,9 +51,6 @@ func ItemToProceedingsArticle(item Item, relatedItems ...Item) (*bibtex.BibEntry
 	if bookTitle == "" && relatedBook != nil {
 		bookTitle = ItemGetTitle(*relatedBook)
 	}
-	if bookTitle == "" {
-		return nil, fmt.Errorf("zbMath proceedings item %d has no book title", item.ID)
-	}
 	addBibField(entry, "booktitle", bookTitle)
 
 	publisher := ItemGetBookPublisher(item)
@@ -76,6 +75,21 @@ func ItemToProceedingsArticle(item Item, relatedItems ...Item) (*bibtex.BibEntry
 	addBibField(entry, "volume", ItemGetSeriesVolume(seriesItem))
 
 	return entry, nil
+}
+
+func ItemToBook(item Item) *bibtex.BibEntry {
+	entry := newBibEntry("book", item)
+	addCommonFields(entry, item)
+
+	addBibField(entry, "editor", ItemGetEditors(item))
+	addBibField(entry, "publisher", ItemGetBookPublisher(item))
+	addBibField(entry, "isbn", ItemGetBookISBN(item))
+	addBibField(entry, "series", ItemGetSeriesTitle(item))
+	addBibField(entry, "issn", ItemGetSeriesISSN(item))
+	addBibField(entry, "volume", ItemGetSeriesVolume(item))
+	addBibField(entry, "year", firstNonEmpty(ItemGetBookYear(item), item.Year, ItemGetSeriesYear(item)))
+
+	return entry
 }
 
 // ItemToPreprint returns a BibTeX misc entry for a zbMath preprint record.
@@ -128,9 +142,17 @@ func ItemGetTitle(item Item) string {
 }
 
 func ItemGetAuthors(item Item) string {
-	names := make([]string, 0, len(item.Contributors.Authors))
-	for _, author := range item.Contributors.Authors {
-		if name := strings.TrimSpace(author.Name); name != "" {
+	return formatContributors(item.Contributors.Authors)
+}
+
+func ItemGetEditors(item Item) string {
+	return formatContributors(item.Contributors.Editors)
+}
+
+func formatContributors(contributors []Author) string {
+	names := make([]string, 0, len(contributors))
+	for _, contributor := range contributors {
+		if name := strings.TrimSpace(contributor.Name); name != "" {
 			names = append(names, name)
 		}
 	}

@@ -111,7 +111,9 @@ type Language struct {
 }
 
 type Item struct {
-	BiographicReferences   []string                `json:"biographic_references"`
+	// BiographicReferences is ancillary metadata whose entries vary between
+	// strings and author-like objects in the zbMath API.
+	BiographicReferences   []json.RawMessage       `json:"biographic_references"`
 	Contributors           Contributors            `json:"contributors"`
 	Database               string                  `json:"database"`
 	Datestamp              string                  `json:"datestamp"`

@@ -1,163 +1,173 @@
 package mr
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	_"log"
-	_"flag"
-	"os"
-	_"log"
-	_"reflect"
 	"strings"
-	"bytes"
+	"time"
+
 	"github.com/nickng/bibtex"
-	"github.com/thofma/bibi/util"
 )
 
-// func mrMultiResponseFromDOI(doi string) ([]string, error) {
-// 	author, year, title, err := doiToAYT(doi)
-// 	if err != nil {
-// 		return []string{}, err
-// 	}
-//   // TODO: check error
-// 
-// 	return mrMultiResponseFromAYT(author[1], year, title)
-// }
-// 
-// func mrSingleResponseFromDOI(doi string) (string, error) {
-// 	res, err := mrMultiResponseFromDOI(doi)
-// 	if err != nil {
-// 		return "", err
-// 	}
-// 	// TODO: check err
-// 	return res[0], nil
-// }
+const (
+	defaultMRAPIBaseURL = "https://mathscinet.ams.org/mathscinet/api/freetools/mrlookup"
+	mrHTTPTimeout       = 15 * time.Second
+)
 
-// getBibTeX queries MRLookup with author and year and returns the BibTeX entry
-func mrMultiResponseFromAYT(author, year, title string) ([]string, error) {
-	empty := []string{}
+var (
+	mrAPIBaseURL = defaultMRAPIBaseURL
+	mrHTTPClient = &http.Client{Timeout: mrHTTPTimeout}
+)
 
-	// Fix the name
-	// MR wants "LAST, FIRST"
-	author, err := fixName(author)
+type lookupResponse struct {
+	All struct {
+		Results []lookupResult `json:"results"`
+	} `json:"all"`
+}
+
+type lookupResult struct {
+	BibTeXFormat string `json:"bibTexFormat"`
+}
+
+// Entry is a bibliographic record returned by MR Lookup.
+type Entry struct {
+	Doi     *string
+	Authors []string
+	Title   string
+	Year    string
+	BibTeX  *bibtex.BibEntry
+}
+
+// MRQueryAYT queries MR Lookup by author, year, and title.
+func MRQueryAYT(author, year, title string) ([]*Entry, error) {
+	responses, err := mrMultiResponseFromAYT(author, year, title)
 	if err != nil {
-		return empty, err
+		return nil, err
 	}
 
-	baseURL := "https://mathscinet.ams.org/mathscinet/api/freetools/mrlookup"
-	data := url.Values{}
-	data.Add("author", author)
-	data.Set("year", year)
-	data.Set("journal", "")
-	data.Set("firstPage", "")
-	data.Set("lastPage", "")
-	data.Set("title", title)
+	entries := make([]*Entry, 0, len(responses))
+	for i, response := range responses {
+		parsed, err := bibtex.Parse(bytes.NewReader([]byte(response)))
+		if err != nil {
+			return nil, fmt.Errorf("parse MR BibTeX result %d: %w", i+1, err)
+		}
+		if len(parsed.Entries) == 0 {
+			return nil, fmt.Errorf("MR BibTeX result %d contains no entry", i+1)
+		}
 
-	reqURL := baseURL + "?" + data.Encode()
+		bib := parsed.Entries[0]
+		entry := &Entry{
+			Authors: ExtractAuthorsFromBibtex(bib),
+			Title:   ExtractTitleFromBibtex(bib),
+			Year:    ExtractYearFromBibtex(bib),
+			BibTeX:  bib,
+		}
+		if doi := ExtractDOIFromBibtex(bib); doi != "" {
+			entry.Doi = &doi
+		}
+		entries = append(entries, entry)
+	}
 
-	// Make the request
-	resp, err := http.Get(reqURL)
+	return entries, nil
+}
+
+func mrMultiResponseFromAYT(author, year, title string) ([]string, error) {
+	author, err := fixName(author)
 	if err != nil {
-		return empty, fmt.Errorf("HTTP request failed: %v", err)
+		return nil, err
+	}
+
+	endpoint, err := url.Parse(mrAPIBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse MR Lookup URL: %w", err)
+	}
+	query := endpoint.Query()
+	query.Set("author", author)
+	query.Set("year", year)
+	query.Set("journal", "")
+	query.Set("firstPage", "")
+	query.Set("lastPage", "")
+	query.Set("title", title)
+	endpoint.RawQuery = query.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create MR Lookup request: %w", err)
+	}
+
+	resp, err := mrHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request MR Lookup: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return empty, fmt.Errorf("non-OK HTTP status: %s", resp.Status)
-	}
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return empty, fmt.Errorf("failed to read response body: %v", err)
+		return nil, fmt.Errorf("read MR Lookup response: %w", err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("MR Lookup returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
-	text := string(body)
-
-	// Now comes the json nightmare
-	var dat map[string]interface{}
-
-	b := []byte(text)
-
-	if err := json.Unmarshal(b, &dat); err != nil {
-		panic(err)
+	var payload lookupResponse
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("parse MR Lookup response: %w", err)
 	}
 
-	dd := dat["all"].(map[string]interface{})
-	resu := dd["results"].([]interface {})
-	ress := make([]string, len(resu))
-
-	for i := 0; i < len(resu); i++ {
-		//fmt.Println("NEXT RESULT")
-		//fmt.Printf("Type resu[i]: %T \n", resu[i])
-		resucast := ((resu[i].(map[string]interface{}))["bibTexFormat"]).(string)
-		ress[i] = strings.TrimSpace(resucast)
-		//fmt.Println(resu[i])
+	responses := make([]string, 0, len(payload.All.Results))
+	for i, result := range payload.All.Results {
+		bibTeX := strings.TrimSpace(result.BibTeXFormat)
+		if bibTeX == "" {
+			return nil, fmt.Errorf("MR Lookup result %d has no BibTeX", i+1)
+		}
+		responses = append(responses, bibTeX)
 	}
-	//fmt.Println("2 \n")
-	return ress, nil
-}
-
-func mrSingleResponseFromAYT(author, year, title string) (string, error) {
-	res, _ := mrMultiResponseFromAYT(author, year, title)
-	// TODO: check err
-	return res[0], nil
+	return responses, nil
 }
 
 func fixName(name string) (string, error) {
-	// We only accept "LAST,FIRST" or "LAST"
-	// If there are more commas, we abort
-	if strings.Contains(name, ",") {
-		splitted := strings.Split(name, ",")
-		if len(splitted) > 2 {
-			return "", fmt.Errorf("Malformed name. Should be of the form \"LAST\" or \"LAST,FIRST\"")
-		}
-		name = splitted[0] + ", " + splitted[1]
+	name = strings.TrimSpace(name)
+	if !strings.Contains(name, ",") {
+		return name, nil
 	}
-	return name, nil
-}
-type Entry struct {
-	Doi *string
-	Authors []string
-	Title string
-	Year string
-	doctype string
-	arxiv string
-	mrbibtex *bibtex.BibEntry
-	zbbibtex *bibtex.BibEntry
-}
 
-func MRQueryAYT(author string, year string, title string) []*Entry {
-	resp, _ := mrMultiResponseFromAYT(author, year, title)
-	result := make([]*Entry, len(resp))
-	for i := 0; i < len(result); i++ {
-		b := []byte(resp[i])
-		bib, _ := bibtex.Parse(bytes.NewReader(b))
-		p := Entry{mrbibtex: bib.Entries[0]}
-		p.Authors = ExtractAuthorsFromBibtex(p.mrbibtex)
-		p.Title = ExtractTitleFromBibtex(p.mrbibtex)
-		p.Year = ExtractYearFromBibtex(p.mrbibtex)
-		doi := ExtractDOIFromBibtex(p.mrbibtex)
-		p.Doi = &doi
-		result[i] = &p
+	parts := strings.Split(name, ",")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("malformed name %q: use LAST or LAST,FIRST", name)
 	}
-	return result
+	return strings.TrimSpace(parts[0]) + ", " + strings.TrimSpace(parts[1]), nil
 }
 
 func ExtractFieldFromBibtex(bib *bibtex.BibEntry, field string) string {
-	for k, v := range bib.Fields { 
-		if strings.ToLower(k) == strings.ToLower(field) {
-			return strings.TrimSpace(fmt.Sprint(v))
+	if bib == nil {
+		return ""
+	}
+	for key, value := range bib.Fields {
+		if strings.EqualFold(key, field) {
+			return strings.TrimSpace(fmt.Sprint(value))
 		}
 	}
 	return ""
 }
 
 func ExtractAuthorsFromBibtex(bib *bibtex.BibEntry) []string {
-	authors := strings.Split(ExtractFieldFromBibtex(bib, "author"), " and ")
-	return authors
+	authorField := ExtractFieldFromBibtex(bib, "author")
+	if authorField == "" {
+		return nil
+	}
+
+	authors := strings.Split(authorField, " and ")
+	result := make([]string, 0, len(authors))
+	for _, author := range authors {
+		if author = strings.TrimSpace(author); author != "" {
+			result = append(result, author)
+		}
+	}
+	return result
 }
 
 func ExtractTitleFromBibtex(bib *bibtex.BibEntry) string {
@@ -170,90 +180,4 @@ func ExtractYearFromBibtex(bib *bibtex.BibEntry) string {
 
 func ExtractDOIFromBibtex(bib *bibtex.BibEntry) string {
 	return ExtractFieldFromBibtex(bib, "doi")
-}
-
-func entryFromDoi(doi string) *Entry {
-	p := Entry{Doi: &doi}
-	return &p
-}
-//
-//func DOIQuery(doi string) []*entry {
-//	// let's always return an array
-//	return ZBQueryWithDOI(doi)
-//}
-//
-// func ZBQueryWithDOI(doi string) []*entry {
-// 	// very disappointing, that zb has no API to retrieve the bibtex entry
-// 	authors, year, title, _ := doiToAYT(doi)
-// 	mrq := MRQueryAYT(authors[1], year, title)
-// 	return mrq
-// }
-//
-//func ArxivQueryWithIdentifier(identifier string) []*entry {
-//	body, _ := getArxivResponse(identifier)
-//	title, authors, id, year, _ := parseArxivResponse(body)
-//	resp, _ := arxivBibtex(title, authors, id, year)
-//	bib, _ := bibtex.Parse(bytes.NewReader([]byte(resp)))
-//	p := entry{mrbibtex: bib.Entries[0]}
-//	p.authors = authors
-//	p.title = title
-//	p.year = year
-//  p.arxiv = identifier
-//	result := []*entry{&p}
-//	return result
-//}
-
-func Main(args []string) {
-	if len(args) > 3 {
-		fmt.Println("expected at most three arguments")
-		os.Exit(1)
-	}
-	if len(args) == 0 {
-		fmt.Println("expected at least one argument")
-		os.Exit(1)
-	}
-	author := args[0]
-	var title string
-	var year string
-	//bibtex, _ := mrMultiResponseFromAYT(author, year, title)
-	if len(args) >= 2 {
-		title = args[1]
-	}
-	if len(args) == 3 {
-		year = args[2]
-	}
-
-	if author == "-" {
-		author = ""
-	}
-
-	if title == "-" {
-		title = ""
-	}
-
-	if year == "-" {
-		year = ""
-	}
-
-	bibtex := MRQueryAYT(author, year, title)
-
-	if len(bibtex) == 0 {
-		fmt.Println("No entry found!")
-		os.Exit(1)
-	}
-	if len(bibtex) > 1 {
-		choices := make([]string, len(bibtex))
-		for i := 0; i < len(bibtex); i++ {
-			choices[i] = bibtex[i].Authors[0]
-			if len(bibtex[i].Authors) > 0 {
-				choices[i] = choices[i] + " et al."
-			}
-			choices[i] = choices[i] + ", " + bibtex[i].Year + ", " + bibtex[i].Title
-		}
-		choice := util.RunChooser(choices)
-		fmt.Print(bibtex[choice].mrbibtex)
-	} else {
-		fmt.Print(bibtex[0].mrbibtex)
-	}
-	os.Exit(0)
 }

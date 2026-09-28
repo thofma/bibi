@@ -20,7 +20,7 @@ func useZBSearch(t *testing.T, search func(string) (zb.Response, error)) {
 	})
 }
 
-func useZBChoose(t *testing.T, choose func([]string) int) {
+func useZBChoose(t *testing.T, choose func([]string) (int, error)) {
 	t.Helper()
 	originalChoose := zbChoose
 	zbChoose = choose
@@ -40,9 +40,9 @@ func TestRunZBWritesOneBibTeXEntry(t *testing.T) {
 			Year:         "2026",
 		}}}, nil
 	})
-	useZBChoose(t, func([]string) int {
+	useZBChoose(t, func([]string) (int, error) {
 		t.Fatal("runZB() opened a chooser for one result")
-		return 0
+		return 0, nil
 	})
 
 	command := &cobra.Command{}
@@ -70,14 +70,14 @@ func TestRunZBChoosesAmongMultipleResults(t *testing.T) {
 			journalResult(2, "Selected result"),
 		}}, nil
 	})
-	useZBChoose(t, func(choices []string) int {
+	useZBChoose(t, func(choices []string) (int, error) {
 		if got, want := len(choices), 2; got != want {
 			t.Errorf("choice count = %d, want %d", got, want)
 		}
 		if !strings.Contains(choices[1], "Selected result") {
 			t.Errorf("second choice = %q, want selected title", choices[1])
 		}
-		return 1
+		return 1, nil
 	})
 
 	command := &cobra.Command{}
@@ -92,6 +92,48 @@ func TestRunZBChoosesAmongMultipleResults(t *testing.T) {
 	}
 	if got, want := parsed.Entries[0].CiteName, "zbMATH2"; got != want {
 		t.Errorf("selected cite name = %q, want %q", got, want)
+	}
+}
+
+func TestRunZBAllowsProceedingsWithoutBookTitle(t *testing.T) {
+	useZBSearch(t, func(string) (zb.Response, error) {
+		return zb.Response{Result: []zb.Item{{
+			DocumentType: zb.DocumentType{Code: "a"},
+			ID:           1,
+			Title:        zb.Title{Title: "Incomplete collection article"},
+			Year:         "2026",
+		}}}, nil
+	})
+
+	command := &cobra.Command{}
+	var output bytes.Buffer
+	command.SetOut(&output)
+	if err := runZB(command, []string{"incomplete"}); err != nil {
+		t.Fatalf("runZB() error = %v", err)
+	}
+	parsed, err := bibtex.Parse(strings.NewReader(output.String()))
+	if err != nil {
+		t.Fatalf("runZB() wrote invalid BibTeX: %v", err)
+	}
+	if got, want := parsed.Entries[0].Type, "inproceedings"; got != want {
+		t.Errorf("entry type = %q, want %q", got, want)
+	}
+	if _, ok := parsed.Entries[0].Fields["booktitle"]; ok {
+		t.Errorf("booktitle = %q, want omitted", parsed.Entries[0].Fields["booktitle"])
+	}
+}
+
+func TestZBChoiceLabelUsesEditorsWhenAuthorsAreMissing(t *testing.T) {
+	label := zbChoiceLabel(zb.Item{
+		Contributors: zb.Contributors{Editors: []zb.Author{
+			{Name: "Decker, Wolfram"},
+			{Name: "Eder, Christian"},
+		}},
+		Title: zb.Title{Title: "The computer algebra system OSCAR"},
+		Year:  "2025",
+	})
+	if got, want := label, "Decker, Wolfram et al., 2025, The computer algebra system OSCAR"; got != want {
+		t.Errorf("zbChoiceLabel() = %q, want %q", got, want)
 	}
 }
 
@@ -126,11 +168,11 @@ func TestRunZBCapsChoicesAtTen(t *testing.T) {
 	useZBSearch(t, func(string) (zb.Response, error) {
 		return zb.Response{Result: results}, nil
 	})
-	useZBChoose(t, func(choices []string) int {
+	useZBChoose(t, func(choices []string) (int, error) {
 		if got, want := len(choices), zb.MaxSearchResults; got != want {
 			t.Errorf("choice count = %d, want %d", got, want)
 		}
-		return zb.MaxSearchResults - 1
+		return zb.MaxSearchResults - 1, nil
 	})
 
 	command := &cobra.Command{}
@@ -155,11 +197,27 @@ func TestRunZBHandlesCancelledSelection(t *testing.T) {
 			journalResult(2, "Second result"),
 		}}, nil
 	})
-	useZBChoose(t, func([]string) int { return -1 })
+	useZBChoose(t, func([]string) (int, error) { return -1, nil })
 
 	err := runZB(&cobra.Command{}, []string{"cancel"})
 	if err == nil || !strings.Contains(err.Error(), "cancelled") {
 		t.Fatalf("runZB() error = %v, want cancellation error", err)
+	}
+}
+
+func TestRunZBPropagatesChooserErrors(t *testing.T) {
+	want := errors.New("terminal unavailable")
+	useZBSearch(t, func(string) (zb.Response, error) {
+		return zb.Response{Result: []zb.Item{
+			journalResult(1, "First result"),
+			journalResult(2, "Second result"),
+		}}, nil
+	})
+	useZBChoose(t, func([]string) (int, error) { return -1, want })
+
+	err := runZB(&cobra.Command{}, []string{"chooser"})
+	if !errors.Is(err, want) {
+		t.Fatalf("runZB() error = %v, want %v", err, want)
 	}
 }
 

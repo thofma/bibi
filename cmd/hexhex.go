@@ -9,11 +9,13 @@ import (
 	"github.com/thofma/bibi/util"
 )
 
-var zbSearch = zb.Search
-var zbChoose = util.RunChooser
+var (
+	zbSearch = zb.Search
+	zbChoose = util.RunChooser
+)
 
 var zbCmd = &cobra.Command{
-	Use:   "zb <search terms>",
+	Use:   "zb <search terms...>",
 	Short: "Retrieve a BibTeX entry from zbMATH Open",
 	Long: `Search zbMATH Open and print a BibTeX entry for a selected result.
 
@@ -29,7 +31,7 @@ Examples:
 
 // hexhexCmd preserves the original prototype command without advertising it.
 var hexhexCmd = &cobra.Command{
-	Use:    "hexhex <search terms>",
+	Use:    "hexhex <search terms...>",
 	Hidden: true,
 	Args:   cobra.MinimumNArgs(1),
 	RunE:   runZB,
@@ -43,7 +45,7 @@ func runZB(cmd *cobra.Command, args []string) error {
 
 	response, err := zbSearch(query)
 	if err != nil {
-		return err
+		return fmt.Errorf("search zbMATH: %w", err)
 	}
 	if len(response.Result) == 0 {
 		return fmt.Errorf("no zbMath entries found for %q", query)
@@ -60,7 +62,10 @@ func runZB(cmd *cobra.Command, args []string) error {
 		for i, result := range results {
 			choices[i] = zbChoiceLabel(result)
 		}
-		selected = zbChoose(choices)
+		selected, err = zbChoose(choices)
+		if err != nil {
+			return fmt.Errorf("choose zbMATH result: %w", err)
+		}
 		if selected < 0 {
 			return fmt.Errorf("zbMath selection cancelled")
 		}
@@ -81,9 +86,13 @@ func runZB(cmd *cobra.Command, args []string) error {
 
 func zbChoiceLabel(item zb.Item) string {
 	author := "Unknown author"
-	if len(item.Contributors.Authors) > 0 {
-		author = item.Contributors.Authors[0].Name
-		if len(item.Contributors.Authors) > 1 {
+	contributors := item.Contributors.Authors
+	if len(contributors) == 0 {
+		contributors = item.Contributors.Editors
+	}
+	if len(contributors) > 0 {
+		author = contributors[0].Name
+		if len(contributors) > 1 {
 			author += " et al."
 		}
 	}

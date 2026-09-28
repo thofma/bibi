@@ -1,45 +1,93 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-
-*/
 package cmd
 
 import (
 	"fmt"
-	"github.com/thofma/bibi/lib/phd"
+	"strings"
+
 	"github.com/spf13/cobra"
+	"github.com/thofma/bibi/lib/phd"
+	"github.com/thofma/bibi/util"
 )
 
-// phdCmd represents the phd command
+var (
+	phdQuery     = phd.MGPQueryAndResponse
+	phdGetBibTeX = phd.MGPEntryGetBibtex
+	phdChoose    = util.RunChooser
+)
+
 var phdCmd = &cobra.Command{
-	Use:   "phd",
-	Short: "Retrieve bibitems for PhD theses in mathematics",
-	Long: `Query the Mathematics Genealogy Project (https://www.genealogy.math.ndsu.nodak.edu/)
-to retrieve bibliographic information about PhD theses in mathematics.
+	Use:   "phd <name...>",
+	Short: "Retrieve BibTeX for mathematics PhD theses",
+	Long: `Query the Mathematics Genealogy Project for a mathematician's PhD thesis.
 
-Only the (partial) name is supplied.
+Examples:
 
-# Examples
+  bibi phd gauss
+  bibi phd "carl gauss"`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runPhD,
+}
 
-bibi phd gauss 
+func runPhD(cmd *cobra.Command, args []string) error {
+	name := strings.TrimSpace(strings.Join(args, " "))
+	if name == "" {
+		return fmt.Errorf("a mathematician name is required")
+	}
 
-bibi phd carl gauss`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("phd called")
-		phd.Main(args)
-	},
+	entries, err := phdQuery(name)
+	if err != nil {
+		return fmt.Errorf("query Mathematics Genealogy Project: %w", err)
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("no PhD theses found")
+	}
+
+	selected := 0
+	if len(entries) > 1 {
+		choices := make([]string, len(entries))
+		for i, entry := range entries {
+			choices[i] = phdChoiceLabel(entry)
+		}
+		selected, err = phdChoose(choices)
+		if err != nil {
+			return fmt.Errorf("choose PhD result: %w", err)
+		}
+		if selected < 0 {
+			return fmt.Errorf("PhD selection cancelled")
+		}
+		if selected >= len(entries) {
+			return fmt.Errorf("invalid PhD selection %d", selected)
+		}
+	}
+
+	bib, err := phdGetBibTeX(entries[selected])
+	if err != nil {
+		return fmt.Errorf("create thesis BibTeX: %w", err)
+	}
+	if bib == nil {
+		return fmt.Errorf("selected PhD result has no BibTeX entry")
+	}
+	if _, err := fmt.Fprint(cmd.OutOrStdout(), bib.PrettyString()); err != nil {
+		return fmt.Errorf("write BibTeX entry: %w", err)
+	}
+	return nil
+}
+
+func phdChoiceLabel(entry phd.MGPEntry) string {
+	name := strings.TrimSpace(entry.Author)
+	if name == "" {
+		name = "Unknown author"
+	}
+	parts := []string{name}
+	if year := strings.TrimSpace(entry.Year); year != "" {
+		parts = append(parts, year)
+	}
+	if university := strings.TrimSpace(entry.University); university != "" {
+		parts = append(parts, university)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func init() {
 	rootCmd.AddCommand(phdCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// phdCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// phdCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

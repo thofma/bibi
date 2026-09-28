@@ -1608,6 +1608,32 @@ func TestProceedingArticle(t *testing.T) {
 	AssertValidBibTeX(t, bib)
 }
 
+func TestBook(t *testing.T) {
+	resp, err := ParseToStruct(ExampleProceedings)
+	if err != nil {
+		t.Fatalf("ParseToStruct() error = %v", err)
+	}
+	bib, err := ItemToBibEntry(resp.Result[1], resp.Result...)
+	if err != nil {
+		t.Fatalf("ItemToBibEntry() error = %v", err)
+	}
+
+	entry := bibtex.NewBibEntry("book", "zbMATH7083365")
+	entry.AddField("editor", bibtex.NewBibConst("Scheidler, Renate and Sorenson, Jonathan"))
+	entry.AddField("title", bibtex.NewBibConst("ANTS XIII. Proceedings of the thirteenth algorithmic number theory symposium, University of Wisconsin-Madison, WI, USA, July 16--20, 2018"))
+	entry.AddField("publisher", bibtex.NewBibConst("Berkeley, CA: Mathematical Sciences Publishers (MSP)"))
+	entry.AddField("series", bibtex.NewBibConst("Open Book Ser."))
+	entry.AddField("volume", bibtex.NewBibConst("2"))
+	entry.AddField("pages", bibtex.NewBibConst("x, 478~p."))
+	entry.AddField("year", bibtex.NewBibConst("2019"))
+	entry.AddField("isbn", bibtex.NewBibConst("978-1-935107-02-6; 978-1-935107-03-3"))
+	entry.AddField("issn", bibtex.NewBibConst("2329-9061"))
+	entry.AddField("doi", bibtex.NewBibConst("10.2140/obs.2019.2-1"))
+	entry.AddField("zbmath", bibtex.NewBibConst("7083365"))
+	AssertEntriesEqual(t, entry, bib)
+	AssertValidBibTeX(t, bib)
+}
+
 func TestArticleWithoutSeriesDoesNotPanic(t *testing.T) {
 	item := Item{
 		DocumentType: DocumentType{Code: "j"},
@@ -1660,16 +1686,20 @@ func TestArXivPreprintWithoutDocumentType(t *testing.T) {
 	AssertValidBibTeX(t, bib)
 }
 
-func TestProceedingsWithoutBookTitleReturnsError(t *testing.T) {
+func TestProceedingsWithoutBookTitleOmitsField(t *testing.T) {
 	item := Item{
 		DocumentType: DocumentType{Code: "a"},
 		ID:           2,
 		Title:        Title{Title: "A proceedings article"},
 	}
-	_, err := ItemToBibEntry(item)
-	if err == nil {
-		t.Fatal("ItemToBibEntry() error = nil, want missing-book-title error")
+	bib, err := ItemToBibEntry(item)
+	if err != nil {
+		t.Fatalf("ItemToBibEntry() error = %v", err)
 	}
+	if _, ok := bib.Fields["booktitle"]; ok {
+		t.Errorf("booktitle = %q, want omitted", bib.Fields["booktitle"])
+	}
+	AssertValidBibTeX(t, bib)
 }
 
 func TestUnsupportedDocumentTypeReturnsError(t *testing.T) {
