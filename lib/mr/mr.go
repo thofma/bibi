@@ -17,10 +17,6 @@ import (
 	"github.com/thofma/bibi/util"
 )
 
-/*
-    Stuff for the menu
-														*/
-
 // func mrMultiResponseFromDOI(doi string) ([]string, error) {
 // 	author, year, title, err := doiToAYT(doi)
 // 	if err != nil {
@@ -122,29 +118,29 @@ func fixName(name string) (string, error) {
 	}
 	return name, nil
 }
-type entry struct {
-	doi *string
-	authors []string
-	title string
-	year string
+type Entry struct {
+	Doi *string
+	Authors []string
+	Title string
+	Year string
 	doctype string
 	arxiv string
 	mrbibtex *bibtex.BibEntry
 	zbbibtex *bibtex.BibEntry
 }
 
-func MRQueryAYT(author string, year string, title string) []*entry {
+func MRQueryAYT(author string, year string, title string) []*Entry {
 	resp, _ := mrMultiResponseFromAYT(author, year, title)
-	result := make([]*entry, len(resp))
+	result := make([]*Entry, len(resp))
 	for i := 0; i < len(result); i++ {
 		b := []byte(resp[i])
 		bib, _ := bibtex.Parse(bytes.NewReader(b))
-		p := entry{mrbibtex: bib.Entries[0]}
-		p.authors = ExtractAuthorsFromBibtex(p.mrbibtex)
-		p.title = ExtractTitleFromBibtex(p.mrbibtex)
-		p.year = ExtractYearFromBibtex(p.mrbibtex)
+		p := Entry{mrbibtex: bib.Entries[0]}
+		p.Authors = ExtractAuthorsFromBibtex(p.mrbibtex)
+		p.Title = ExtractTitleFromBibtex(p.mrbibtex)
+		p.Year = ExtractYearFromBibtex(p.mrbibtex)
 		doi := ExtractDOIFromBibtex(p.mrbibtex)
-		p.doi = &doi
+		p.Doi = &doi
 		result[i] = &p
 	}
 	return result
@@ -176,8 +172,8 @@ func ExtractDOIFromBibtex(bib *bibtex.BibEntry) string {
 	return ExtractFieldFromBibtex(bib, "doi")
 }
 
-func entryFromDoi(doi string) *entry {
-	p := entry{doi: &doi}
+func entryFromDoi(doi string) *Entry {
+	p := Entry{Doi: &doi}
 	return &p
 }
 //
@@ -248,11 +244,11 @@ func Main(args []string) {
 	if len(bibtex) > 1 {
 		choices := make([]string, len(bibtex))
 		for i := 0; i < len(bibtex); i++ {
-			choices[i] = bibtex[i].authors[0]
-			if len(bibtex[i].authors) > 0 {
+			choices[i] = bibtex[i].Authors[0]
+			if len(bibtex[i].Authors) > 0 {
 				choices[i] = choices[i] + " et al."
 			}
-			choices[i] = choices[i] + ", " + bibtex[i].year + ", " + bibtex[i].title
+			choices[i] = choices[i] + ", " + bibtex[i].Year + ", " + bibtex[i].Title
 		}
 		choice := util.RunChooser(choices)
 		fmt.Print(bibtex[choice].mrbibtex)
