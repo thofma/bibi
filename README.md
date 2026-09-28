@@ -1,14 +1,27 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/bibi-mark-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="assets/bibi-mark-light.svg">
-  <img alt="bibi" src="assets/bibi-mark-light.svg" width="88">
-</picture>
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/bibi-mark-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/bibi-mark-light.svg">
+    <img alt="bibi" src="assets/bibi-mark-light.svg" width="112">
+  </picture>
+</div>
+
+---
 
 # bibi
 
 `bibi` is a command-line tool that retrieves BibTeX for mathematical literature
 from MathSciNet's limited free MRTools search, [zbMATH Open](https://zbmath.org/),
 and the [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/).
+
+## Table of Contents
+
+- [Install](#install)
+- [Usage](#usage)
+  - [zbMATH Open](#zbmath-open)
+  - [MR Lookup](#mr-lookup)
+  - [Mathematics Genealogy Project](#mathematics-genealogy-project)
+- [Development](#development)
 
 ## Install
 
