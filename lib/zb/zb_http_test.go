@@ -125,6 +125,45 @@ func TestSearchRejectsEmptyQuery(t *testing.T) {
 	}
 }
 
+func TestSearchTreatsStructuredNotFoundAsEmptyResults(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{
+			"result": null,
+			"status": {
+				"execution": "Entry not found!",
+				"execution_bool": false,
+				"internal_code": "successful access. No results found.",
+				"status_code": 404
+			}
+		}`)
+	}))
+	defer server.Close()
+
+	useZBTestAPI(t, server.URL, server.Client())
+	response, err := Search("missing")
+	if err != nil {
+		t.Fatalf("Search() error = %v, want nil", err)
+	}
+	if len(response.Result) != 0 {
+		t.Errorf("Search() returned %d results, want none", len(response.Result))
+	}
+}
+
+func TestSearchPreservesUnexpectedNotFoundErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unexpected endpoint", http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	useZBTestAPI(t, server.URL, server.Client())
+	_, err := Search("missing")
+	if err == nil || !strings.Contains(err.Error(), "404 Not Found") {
+		t.Fatalf("Search() error = %v, want HTTP status error", err)
+	}
+}
+
 func TestParseZBResponseHandlesMissingResult(t *testing.T) {
 	_, _, _, _, err := parseZBResponse(`{"result":[]}`)
 	if err == nil {

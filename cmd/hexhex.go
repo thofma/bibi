@@ -23,7 +23,7 @@ When zbMATH returns several results, bibi presents up to ten choices.
 
 Examples:
 
-  bibi zb "hofmann zhang p-adic"
+  bibi zb "zhang p-adic"
   bibi zb "serre local fields"`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runZB,

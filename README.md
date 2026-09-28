@@ -17,6 +17,7 @@ and the [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.ed
 ## Table of Contents
 
 - [Install](#install)
+- [Quick Start](#quick-start)
 - [Usage](#usage)
   - [zbMATH Open](#zbmath-open)
   - [MR Lookup](#mr-lookup)
@@ -25,17 +26,34 @@ and the [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.ed
 
 ## Install
 
-Install the Go version declared in [`go.mod`](go.mod), then build from a checkout:
+Install the latest tagged version into your Go binary directory:
+
+```sh
+go install github.com/thofma/bibi@latest
+```
+
+Prebuilt archives for macOS, Linux, and Windows are available from
+[GitHub Releases](https://github.com/thofma/bibi/releases).
+
+To build from a checkout, install the Go version declared in [`go.mod`](go.mod),
+then run:
 
 ```sh
 go build -o bibi .
 ```
 
-Or install it into your Go binary directory:
+## Quick Start
+
+<p align="center">
+  <img src="assets/quick-start.gif" alt="Animated terminal showing a bibi zb search and its search spinner" width="560">
+</p>
 
 ```sh
-go install .
+bibi zb "zhang p-adic"
 ```
+
+If the search returns more than one match, choose a result when prompted. `bibi`
+prints its BibTeX entry to standard output.
 
 ## Usage
 
@@ -46,7 +64,7 @@ errors, and the interactive result picker are written to standard error. Press
 ### zbMATH Open
 
 ```sh
-bibi zb "hofmann zhang p-adic"
+bibi zb "zhang p-adic"
 ```
 
 `zb` searches [zbMATH Open](https://zbmath.org/) and lets you choose among up to

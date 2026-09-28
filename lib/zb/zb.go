@@ -1,6 +1,7 @@
 package zb
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +26,16 @@ var (
 	zbBibTeXBaseURL = defaultZBBibTeXBaseURL
 	zbHTTPClient    = &http.Client{Timeout: zbHTTPTimeout}
 )
+
+type zbHTTPError struct {
+	statusCode int
+	status     string
+	body       string
+}
+
+func (err *zbHTTPError) Error() string {
+	return fmt.Sprintf("zbMath request returned %s: %s", err.status, strings.TrimSpace(err.body))
+}
 
 func getZBResponseAnything(search string) (string, error) {
 	query := url.Values{}
@@ -72,7 +83,11 @@ func getZBURL(endpoint string, accept string) (string, error) {
 		return "", fmt.Errorf("read zbMath response: %w", err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return "", fmt.Errorf("zbMath request returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return "", &zbHTTPError{
+			statusCode: resp.StatusCode,
+			status:     resp.Status,
+			body:       string(body),
+		}
 	}
 
 	return string(body), nil
@@ -87,6 +102,9 @@ func Search(search string) (Response, error) {
 
 	body, err := getZBResponseAnything(search)
 	if err != nil {
+		if response, ok := zbNoResultsResponse(err); ok {
+			return response, nil
+		}
 		return Response{}, err
 	}
 	response, err := ParseToStruct(body)
@@ -94,6 +112,19 @@ func Search(search string) (Response, error) {
 		return Response{}, fmt.Errorf("parse zbMath search response: %w", err)
 	}
 	return response, nil
+}
+
+func zbNoResultsResponse(err error) (Response, bool) {
+	var httpErr *zbHTTPError
+	if !errors.As(err, &httpErr) || httpErr.statusCode != http.StatusNotFound {
+		return Response{}, false
+	}
+
+	response, parseErr := ParseToStruct(httpErr.body)
+	if parseErr != nil || !strings.Contains(strings.ToLower(response.Status.InternalCode), "no results found") {
+		return Response{}, false
+	}
+	return response, true
 }
 
 func ZBAnything(search string) ([]*mr.Entry, error) {
