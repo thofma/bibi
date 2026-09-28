@@ -1,85 +1,95 @@
 package zb
 
 import (
-	_ "encoding/json"
 	"fmt"
-	"github.com/nickng/bibtex"
-	_ "github.com/thofma/bibi/util"
-	_ "html"
-	_ "io"
-	_ "net/http"
-	_ "net/url"
-	_ "os"
-	_ "reflect"
-	_ "strconv"
 	"strings"
-	_ "unicode"
+
+	"github.com/nickng/bibtex"
 )
 
-func ItemToBibEntry(item Item) *bibtex.BibEntry {
-	fmt.Println("yoo")
-	fmt.Println(item.DocumentType.Code)
-	if item.DocumentType.Code == "j" {
-		fmt.Println("got a journal article")
-		it := ItemToArticle(item)
-		fmt.Println(it.PrettyString())
-		return it
-	} else if item.DocumentType.Code == "a" {
-		fmt.Println("got an  inproceedings journal article")
-		it := ItemToProceedingsArticle(item)
-		fmt.Println(it.PrettyString())
-		return it
-	} else {
-		fmt.Println("not implemented for ", item.DocumentType.Code)
-		panic(1)
+// ItemToBibEntry converts an individual zbMath item into a BibTeX entry.
+// Related items may be supplied to resolve metadata for an enclosing book.
+func ItemToBibEntry(item Item, relatedItems ...Item) (*bibtex.BibEntry, error) {
+	switch item.DocumentType.Code {
+	case "j":
+		return ItemToArticle(item), nil
+	case "a":
+		return ItemToProceedingsArticle(item, relatedItems...)
+	default:
+		return nil, fmt.Errorf("unsupported zbMath document type %q", item.DocumentType.Code)
 	}
-	entry := bibtex.NewBibEntry("thesis", fmt.Sprintf("%v%v", "ass", "bss"))
-	//entry.AddField("author", bibtex.NewBibConst(author))
-	//entry.AddField("title", bibtex.NewBibConst(BibtexEncodeTitle(title)))
-	//entry.AddField("year", bibtex.NewBibConst(year))
-	//entry.AddField("school", bibtex.NewBibConst(university))
-	return entry
 }
 
 func ItemToArticle(item Item) *bibtex.BibEntry {
-	id := ItemGetID(item)
-	// first retrieve zbl number to create the label
-	label := fmt.Sprintf("zbMATH%v", id)
-	entry := bibtex.NewBibEntry("article", label)
-	// author
-	entry.AddField("author", bibtex.NewBibConst(ItemGetAuthors(item)))
-	// title
-	// maybe phd.BibtexEncodeTitle?
-	entry.AddField("title", bibtex.NewBibConst(ItemGetTitle(item)))
-	entry.AddField("journal", bibtex.NewBibConst(ItemGetSeriesTitle(item)))
-	issn := ItemGetSeriesISSN(item)
-	if issn != "" {
-		entry.AddField("issn", bibtex.NewBibConst(issn))
-	}
-	volume := ItemGetSeriesVolume(item)
-	if volume != "" {
-		entry.AddField("volume", bibtex.NewBibConst(volume))
-	}
+	entry := newBibEntry("article", item)
+	addCommonFields(entry, item)
 
-	year := ItemGetSeriesYear(item)
-	if year != "" {
-		entry.AddField("year", bibtex.NewBibConst(year))
-	}
-
-	doi, _ := ItemGetDOI(item)
-	// don't use the url
-	if doi != "" {
-		entry.AddField("doi", bibtex.NewBibConst(doi))
-	}
-
-	pages := ItemGetSourcePages(item)
-	entry.AddField("pages", bibtex.NewBibConst(pages))
-
-	entry.AddField("zbmath", bibtex.NewBibConst(fmt.Sprintf("%v", id)))
-
-	PrintBibtex(entry)
+	addBibField(entry, "journal", ItemGetSeriesTitle(item))
+	addBibField(entry, "issn", ItemGetSeriesISSN(item))
+	addBibField(entry, "volume", ItemGetSeriesVolume(item))
+	addBibField(entry, "year", firstNonEmpty(item.Year, ItemGetSeriesYear(item)))
 
 	return entry
+}
+
+func ItemToProceedingsArticle(item Item, relatedItems ...Item) (*bibtex.BibEntry, error) {
+	entry := newBibEntry("inproceedings", item)
+	addCommonFields(entry, item)
+
+	relatedBook := relatedBookItem(item, relatedItems)
+	bookTitle := ItemGetBookTitle(item)
+	if bookTitle == "" && relatedBook != nil {
+		bookTitle = ItemGetTitle(*relatedBook)
+	}
+	if bookTitle == "" {
+		return nil, fmt.Errorf("zbMath proceedings item %d has no book title", item.ID)
+	}
+	addBibField(entry, "booktitle", bookTitle)
+
+	publisher := ItemGetBookPublisher(item)
+	isbn := ItemGetBookISBN(item)
+	year := ItemGetBookYear(item)
+	if relatedBook != nil {
+		publisher = firstNonEmpty(publisher, ItemGetBookPublisher(*relatedBook))
+		isbn = firstNonEmpty(isbn, ItemGetBookISBN(*relatedBook))
+		year = firstNonEmpty(year, ItemGetBookYear(*relatedBook), relatedBook.Year)
+	}
+
+	addBibField(entry, "publisher", publisher)
+	addBibField(entry, "isbn", isbn)
+	addBibField(entry, "year", firstNonEmpty(year, item.Year))
+
+	seriesItem := item
+	if !hasSeries(seriesItem) && relatedBook != nil {
+		seriesItem = *relatedBook
+	}
+	addBibField(entry, "series", ItemGetSeriesTitle(seriesItem))
+	addBibField(entry, "issn", ItemGetSeriesISSN(seriesItem))
+	addBibField(entry, "volume", ItemGetSeriesVolume(seriesItem))
+
+	return entry, nil
+}
+
+func newBibEntry(entryType string, item Item) *bibtex.BibEntry {
+	return bibtex.NewBibEntry(entryType, fmt.Sprintf("zbMATH%d", item.ID))
+}
+
+func addCommonFields(entry *bibtex.BibEntry, item Item) {
+	addBibField(entry, "author", ItemGetAuthors(item))
+	addBibField(entry, "title", ItemGetTitle(item))
+	addBibField(entry, "pages", ItemGetSourcePages(item))
+
+	doi, _ := ItemGetDOI(item)
+	addBibField(entry, "doi", doi)
+	if item.ID != 0 {
+		addBibField(entry, "zbmath", fmt.Sprintf("%d", item.ID))
+	}
+}
+
+func addBibField(entry *bibtex.BibEntry, name, value string) {
+	if value = strings.TrimSpace(value); value != "" {
+		entry.AddField(name, bibtex.NewBibConst(value))
+	}
 }
 
 func ItemGetID(item Item) int {
@@ -87,155 +97,146 @@ func ItemGetID(item Item) int {
 }
 
 func ItemGetTitle(item Item) string {
-	return item.Title.Title
+	return strings.TrimSpace(item.Title.Title)
 }
 
 func ItemGetAuthors(item Item) string {
-	n := len(item.Contributors.Authors)
-	names := make([]string, n)
-	for i := 0; i < n; i++ {
-		names[i] = item.Contributors.Authors[i].Name
+	names := make([]string, 0, len(item.Contributors.Authors))
+	for _, author := range item.Contributors.Authors {
+		if name := strings.TrimSpace(author.Name); name != "" {
+			names = append(names, name)
+		}
 	}
 	return strings.Join(names, " and ")
 }
 
 func ItemGetSeriesTitle(item Item) string {
-	return item.Source.Series[0].ShortTitle
+	series, ok := firstSeries(item)
+	if !ok {
+		return ""
+	}
+	return firstNonEmpty(series.ShortTitle, series.Title)
 }
 
 func ItemGetSourcePages(item Item) string {
-	return item.Source.Pages
+	return strings.TrimSpace(item.Source.Pages)
 }
 
 func ItemGetSeriesISSN(item Item) string {
-	if len(item.Source.Series[0].ISSN) > 0 {
-		return item.Source.Series[0].ISSN[0].Number
-	} else {
+	series, ok := firstSeries(item)
+	if !ok {
 		return ""
 	}
+	for _, issn := range series.ISSN {
+		if number := strings.TrimSpace(issn.Number); number != "" {
+			return number
+		}
+	}
+	return ""
 }
 
 func ItemGetSeriesVolume(item Item) string {
-	return item.Source.Series[0].Volume
+	series, ok := firstSeries(item)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(series.Volume)
 }
 
 func ItemGetSeriesYear(item Item) string {
-	return item.Source.Series[0].Year
+	series, ok := firstSeries(item)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(series.Year)
+}
+
+func ItemGetBookTitle(item Item) string {
+	book, ok := firstBook(item)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(book.Title)
+}
+
+func ItemGetBookPublisher(item Item) string {
+	book, ok := firstBook(item)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(book.Publisher)
+}
+
+func ItemGetBookYear(item Item) string {
+	book, ok := firstBook(item)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(book.Year)
+}
+
+func ItemGetBookISBN(item Item) string {
+	book, ok := firstBook(item)
+	if !ok {
+		return ""
+	}
+
+	isbns := make([]string, 0, len(book.ISBN))
+	for _, isbn := range book.ISBN {
+		if number := strings.TrimSpace(isbn.Number); number != "" {
+			isbns = append(isbns, number)
+		}
+	}
+	return strings.Join(isbns, "; ")
 }
 
 func ItemGetDOI(item Item) (string, string) {
-	for i := 0; i < len(item.Links); i++ {
-		l := item.Links[i]
-		if l.Type == "doi" {
-			return l.Identifier, l.URL
+	for _, link := range item.Links {
+		if strings.EqualFold(strings.TrimSpace(link.Type), "doi") {
+			return strings.TrimSpace(link.Identifier), strings.TrimSpace(link.URL)
 		}
 	}
 	return "", ""
 }
 
-// @inproceedings {MR3952019,
-//
-//	   AUTHOR = {Hofmann, Tommy and Zhang, Yinan},
-//	    TITLE = {Cyclic extensions of prime degree and their {$p$}-adic
-//	             regulators},
-//	BOOKTITLE = {Proceedings of the {T}hirteenth {A}lgorithmic {N}umber
-//	             {T}heory {S}ymposium},
-//	   SERIES = {Open Book Ser.},
-//	   VOLUME = {2},
-//	    PAGES = {311--323},
-//	PUBLISHER = {Math. Sci. Publ., Berkeley, CA},
-//	     YEAR = {2019},
-//	     ISBN = {978-1-935107-03-3; 978-1-935107-02-6},
-//	  MRCLASS = {11Y40 (11K41 11R20 11R27)},
-//	 MRNUMBER = {3952019},
-//
-// MRREVIEWER = {Renate\ Scheidler},
-// }
-func ItemToProceedingsArticle(item Item) *bibtex.BibEntry {
-	id := ItemGetID(item)
-	// first retrieve zbl number to create the label
-	label := fmt.Sprintf("zbMATH%v", id)
-	entry := bibtex.NewBibEntry("inproceedings", label)
-	// author
-	entry.AddField("author", bibtex.NewBibConst(ItemGetAuthors(item)))
-	// title
-	// maybe phd.BibtexEncodeTitle?
-	entry.AddField("title", bibtex.NewBibConst(ItemGetTitle(item)))
-	entry.AddField("journal", bibtex.NewBibConst(ItemGetSeriesTitle(item)))
-	issn := ItemGetSeriesISSN(item)
-	if issn != "" {
-		entry.AddField("issn", bibtex.NewBibConst(issn))
+func firstSeries(item Item) (Series, bool) {
+	if len(item.Source.Series) == 0 {
+		return Series{}, false
 	}
-	volume := ItemGetSeriesVolume(item)
-	if volume != "" {
-		entry.AddField("volume", bibtex.NewBibConst(volume))
-	}
-
-	year := ItemGetSeriesYear(item)
-	if year != "" {
-		entry.AddField("year", bibtex.NewBibConst(year))
-	}
-
-	doi, _ := ItemGetDOI(item)
-	// don't use the url
-	if doi != "" {
-		entry.AddField("doi", bibtex.NewBibConst(doi))
-	}
-
-	pages := ItemGetSourcePages(item)
-	entry.AddField("pages", bibtex.NewBibConst(pages))
-
-	entry.AddField("zbmath", bibtex.NewBibConst(fmt.Sprintf("%v", id)))
-
-	PrintBibtex(entry)
-
-	return entry
+	return item.Source.Series[0], true
 }
 
-func PrintBibtex(bib *bibtex.BibEntry) {
-	if bib.Type == "article" {
-		list := []string{"author", "title", "journal", "volme", "year", "pages", "issn", "doi", "zbmath"}
-		//var a string
-		fmt.Print("@article{", strings.TrimSpace(bib.CiteName), "}\n")
-		for a := range list {
-			if bib.Fields[list[a]] != nil {
-				fmt.Print("  ", list[a], " = ", "{", bib.Fields[list[a]], "},\n")
+func firstBook(item Item) (Book, bool) {
+	if len(item.Source.Book) == 0 {
+		return Book{}, false
+	}
+	return item.Source.Book[0], true
+}
+
+func hasSeries(item Item) bool {
+	_, ok := firstSeries(item)
+	return ok
+}
+
+func relatedBookItem(item Item, relatedItems []Item) *Item {
+	for _, book := range item.Source.Book {
+		if book.BookID == 0 {
+			continue
+		}
+		for i := range relatedItems {
+			if relatedItems[i].ID == book.BookID {
+				return &relatedItems[i]
 			}
 		}
-		fmt.Print("}\n")
 	}
-	return
+	return nil
 }
 
-// Example article:
-// @article{zbMATH06340507,
-// author = {Biasse, Jean-Fran{\c{c}}ois and Fieker, Claus},
-// title = {Subexponential class group and unit group computation in large degree number fields},
-// fjournal = {LMS Journal of Computation and Mathematics},
-// journal = {LMS J. Comput. Math.},
-// issn = {1461-1570},
-// volume = {17A},
-// pages = {385--403},
-// year = {2014},
-// language = {English},
-// doi = {10.1112/S1461157014000345},
-// keywords = {11Y40,11R29,11R27},
-// zbMATH = {6340507},
-// Zbl = {1369.11103}
-//}
-//
-// @article {MR3531231,
-//     AUTHOR = {Hofmann, Tommy and Zhang, Yinan},
-//      TITLE = {Valuations of {$p$}-adic regulators of cyclic cubic fields},
-//    JOURNAL = {J. Number Theory},
-//   FJOURNAL = {Journal of Number Theory},
-//     VOLUME = {169},
-//       YEAR = {2016},
-//      PAGES = {86--102},
-//       ISSN = {0022-314X},
-//    MRCLASS = {11Y40 (11K41 11R16 11R27)},
-//   MRNUMBER = {3531231},
-// MRREVIEWER = {Ken Yamamura},
-//        DOI = {10.1016/j.jnt.2016.05.016},
-//        URL = {https://doi.org/10.1016/j.jnt.2016.05.016},
-// }
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}

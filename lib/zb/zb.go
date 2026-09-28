@@ -112,7 +112,12 @@ func Main(args []string) {
 		fmt.Println("no zbMath results")
 		return
 	}
-	ItemToBibEntry(resp.Result[0])
+	entry, err := ItemToBibEntry(resp.Result[0], resp.Result...)
+	if err != nil {
+		fmt.Println("unable to create BibTeX entry:", err)
+		return
+	}
+	fmt.Print(entry.PrettyString())
 }
 
 func ZBParseJSONInternal(items []Item) ([]*mr.Entry, error) {

@@ -1,9 +1,10 @@
 package zb
 
 import (
-	"fmt"
-	"github.com/nickng/bibtex"
+	"strings"
 	"testing"
+
+	"github.com/nickng/bibtex"
 )
 
 var ExampleResponse = `
@@ -951,30 +952,48 @@ var ExampleResponse = `
 `
 
 func AssertEntriesEqual(t *testing.T, a, b *bibtex.BibEntry) {
+	t.Helper()
 	if a.Type != b.Type {
-		fmt.Println(a.Type, b.Type)
-		t.Error("type mismatch")
+		t.Errorf("type = %q, want %q", b.Type, a.Type)
 	}
 	if a.CiteName != b.CiteName {
-		t.Error("cite name mismatch")
+		t.Errorf("cite name = %q, want %q", b.CiteName, a.CiteName)
 	}
 	if len(a.Fields) != len(b.Fields) {
-		fmt.Println(len(a.Fields))
-		fmt.Println(len(b.Fields))
-		t.Fatal("different number of fields")
+		t.Fatalf("field count = %d, want %d", len(b.Fields), len(a.Fields))
 	}
-	for key := range a.Fields {
-		if a.Fields[key].String() != b.Fields[key].String() {
-			t.Fatalf("mismatch on field %q:\n%v\n%v", key, a.Fields[key].String(), b.Fields[key].String())
+	for key, want := range a.Fields {
+		got, ok := b.Fields[key]
+		if !ok {
+			t.Fatalf("missing field %q", key)
+		}
+		if want.String() != got.String() {
+			t.Fatalf("field %q = %q, want %q", key, got.String(), want.String())
 		}
 	}
 }
 
+func AssertValidBibTeX(t *testing.T, entry *bibtex.BibEntry) {
+	t.Helper()
+	parsed, err := bibtex.Parse(strings.NewReader(entry.PrettyString()))
+	if err != nil {
+		t.Fatalf("generated BibTeX does not parse: %v\n%s", err, entry.PrettyString())
+	}
+	if len(parsed.Entries) != 1 {
+		t.Fatalf("generated BibTeX has %d entries, want 1", len(parsed.Entries))
+	}
+}
+
 func TestJournalArticle(t *testing.T) {
-	fmt.Println("os")
-	resp, _ := ParseToStruct(ExampleResponse)
-	bib := ItemToBibEntry(resp.Result[0])
-	//// Test the BibEntry
+	resp, err := ParseToStruct(ExampleResponse)
+	if err != nil {
+		t.Fatalf("ParseToStruct() error = %v", err)
+	}
+	bib, err := ItemToBibEntry(resp.Result[0], resp.Result...)
+	if err != nil {
+		t.Fatalf("ItemToBibEntry() error = %v", err)
+	}
+
 	entry := bibtex.NewBibEntry("article", "zbMATH6617923")
 	entry.AddField("author", bibtex.NewBibConst("Hofmann, Tommy and Zhang, Yinan"))
 	entry.AddField("title", bibtex.NewBibConst("Valuations of \\(p\\)-adic regulators of cyclic cubic fields"))
@@ -986,6 +1005,7 @@ func TestJournalArticle(t *testing.T) {
 	entry.AddField("doi", bibtex.NewBibConst("10.1016/j.jnt.2016.05.016"))
 	entry.AddField("zbmath", bibtex.NewBibConst("6617923"))
 	AssertEntriesEqual(t, entry, bib)
+	AssertValidBibTeX(t, bib)
 }
 
 var ExampleProceedings = `
@@ -1562,19 +1582,64 @@ var ExampleProceedings = `
 `
 
 func TestProceedingArticle(t *testing.T) {
-	resp, _ := ParseToStruct(ExampleProceedings)
-	bib := ItemToBibEntry(resp.Result[0])
-	fmt.Println(bib)
-	//// Test the BibEntry
-	//entry := bibtex.NewBibEntry("article", "zbMATH6617923")
-	//entry.AddField("author", bibtex.NewBibConst("Hofmann, Tommy and Zhang, Yinan"))
-	//entry.AddField("title", bibtex.NewBibConst("Valuations of \\(p\\)-adic regulators of cyclic cubic fields"))
-	//entry.AddField("year", bibtex.NewBibConst("2016"))
-	//entry.AddField("journal", bibtex.NewBibConst("J. Number Theory"))
-	//entry.AddField("volume", bibtex.NewBibConst("169"))
-	//entry.AddField("pages", bibtex.NewBibConst("86-102"))
-	//entry.AddField("issn", bibtex.NewBibConst("0022-314X"))
-	//entry.AddField("doi", bibtex.NewBibConst("10.1016/j.jnt.2016.05.016"))
-	//entry.AddField("zbmath", bibtex.NewBibConst("6617923"))
-	//AssertEntriesEqual(t, entry, bib)
+	resp, err := ParseToStruct(ExampleProceedings)
+	if err != nil {
+		t.Fatalf("ParseToStruct() error = %v", err)
+	}
+	bib, err := ItemToBibEntry(resp.Result[0], resp.Result...)
+	if err != nil {
+		t.Fatalf("ItemToBibEntry() error = %v", err)
+	}
+
+	entry := bibtex.NewBibEntry("inproceedings", "zbMATH7721132")
+	entry.AddField("author", bibtex.NewBibConst("Hofmann, Tommy and Zhang, Yinan"))
+	entry.AddField("title", bibtex.NewBibConst("Cyclic extensions of prime degree and their \\(p\\)-adic regulators"))
+	entry.AddField("booktitle", bibtex.NewBibConst("ANTS XIII. Proceedings of the thirteenth algorithmic number theory symposium, University of Wisconsin-Madison, WI, USA, July 16--20, 2018"))
+	entry.AddField("publisher", bibtex.NewBibConst("Berkeley, CA: Mathematical Sciences Publishers (MSP)"))
+	entry.AddField("series", bibtex.NewBibConst("Open Book Ser."))
+	entry.AddField("volume", bibtex.NewBibConst("2"))
+	entry.AddField("pages", bibtex.NewBibConst("311-323"))
+	entry.AddField("year", bibtex.NewBibConst("2019"))
+	entry.AddField("isbn", bibtex.NewBibConst("978-1-935107-02-6; 978-1-935107-03-3"))
+	entry.AddField("issn", bibtex.NewBibConst("2329-9061"))
+	entry.AddField("doi", bibtex.NewBibConst("10.2140/obs.2019.2.311"))
+	entry.AddField("zbmath", bibtex.NewBibConst("7721132"))
+	AssertEntriesEqual(t, entry, bib)
+	AssertValidBibTeX(t, bib)
+}
+
+func TestArticleWithoutSeriesDoesNotPanic(t *testing.T) {
+	item := Item{
+		DocumentType: DocumentType{Code: "j"},
+		ID:           1,
+		Title:        Title{Title: "An article without source metadata"},
+		Year:         "2026",
+	}
+	bib, err := ItemToBibEntry(item)
+	if err != nil {
+		t.Fatalf("ItemToBibEntry() error = %v", err)
+	}
+	if _, ok := bib.Fields["journal"]; ok {
+		t.Error("article without series unexpectedly has a journal field")
+	}
+	AssertValidBibTeX(t, bib)
+}
+
+func TestProceedingsWithoutBookTitleReturnsError(t *testing.T) {
+	item := Item{
+		DocumentType: DocumentType{Code: "a"},
+		ID:           2,
+		Title:        Title{Title: "A proceedings article"},
+	}
+	_, err := ItemToBibEntry(item)
+	if err == nil {
+		t.Fatal("ItemToBibEntry() error = nil, want missing-book-title error")
+	}
+}
+
+func TestUnsupportedDocumentTypeReturnsError(t *testing.T) {
+	_, err := ItemToBibEntry(Item{DocumentType: DocumentType{Code: "x"}})
+	if err == nil {
+		t.Fatal("ItemToBibEntry() error = nil, want unsupported-type error")
+	}
 }

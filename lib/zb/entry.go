@@ -69,6 +69,7 @@ type Book struct {
 	BookID    int    `json:"book_id"`
 	ISBN      []ISBN `json:"isbn"`
 	Publisher string `json:"publisher"`
+	Title     string `json:"title"`
 	Year      string `json:"year"`
 }
 

@@ -5,9 +5,8 @@ Copyright (c) 2025 Tommy Hofmann
 package cmd
 
 import (
-	"fmt"
-	"github.com/thofma/bibi/lib/zb"
 	"github.com/spf13/cobra"
+	"github.com/thofma/bibi/lib/zb"
 )
 
 // hexhexCmd represents the hexhex command
@@ -19,9 +18,8 @@ and usage of using your command. For example:
 
 Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("hexhex called")
 		zb.Main(args)
 	},
 }
