@@ -69,7 +69,7 @@ func runPhD(cmd *cobra.Command, args []string) error {
 	if bib == nil {
 		return fmt.Errorf("selected PhD result has no BibTeX entry")
 	}
-	if _, err := fmt.Fprint(cmd.OutOrStdout(), bib.PrettyString()); err != nil {
+	if _, err := fmt.Fprint(cmd.OutOrStdout(), formatBibTeX(bib)); err != nil {
 		return fmt.Errorf("write BibTeX entry: %w", err)
 	}
 	return nil

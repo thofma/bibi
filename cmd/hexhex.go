@@ -80,7 +80,7 @@ func runZB(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("create BibTeX entry: %w", err)
 	}
-	if _, err := fmt.Fprint(cmd.OutOrStdout(), entry.PrettyString()); err != nil {
+	if _, err := fmt.Fprint(cmd.OutOrStdout(), formatBibTeX(entry)); err != nil {
 		return fmt.Errorf("write BibTeX entry: %w", err)
 	}
 	return nil

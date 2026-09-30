@@ -58,6 +58,47 @@ func TestRunMRWritesOneBibTeXEntry(t *testing.T) {
 	assertMRBibTeX(t, output.String(), "MR1")
 }
 
+func TestRunMRPreservesBibTeXFields(t *testing.T) {
+	const source = `@incollection{MR4485627,
+    AUTHOR    = {Ducas, L\'eo and van Woerden, Wessel},
+    BOOKTITLE = {Advances in cryptology---{EUROCRYPT} 2022. {P}art {III}},
+    DOI       = {10.1007/978-3-031-07082-2\_23},
+    TITLE     = {On the lattice isomorphism problem, quadratic forms,
+              remarkable lattices, and cryptography},
+    YEAR      = {[2022] \copyright 2022},
+}`
+	parsed, err := bibtex.Parse(strings.NewReader(source))
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	bib := parsed.Entries[0]
+	useMRQuery(t, func(string, string, string) ([]*mr.Entry, error) {
+		return []*mr.Entry{{BibTeX: bib}}, nil
+	})
+
+	command := &cobra.Command{}
+	var output bytes.Buffer
+	command.SetOut(&output)
+	if err := runMR(command, []string{"ducas", "On the lattice isomorphism problem", "-"}); err != nil {
+		t.Fatalf("runMR() error = %v", err)
+	}
+	printed, err := bibtex.Parse(strings.NewReader(output.String()))
+	if err != nil {
+		t.Fatalf("parse output: %v\n%s", err, output.String())
+	}
+	if len(printed.Entries) != 1 {
+		t.Fatalf("output entry count = %d, want 1", len(printed.Entries))
+	}
+	for key, value := range bib.Fields {
+		got, ok := printed.Entries[0].Fields[key]
+		if !ok {
+			t.Errorf("output is missing field %s", key)
+		} else if got.String() != value.String() {
+			t.Errorf("field %s = %q, want %q", key, got.String(), value.String())
+		}
+	}
+}
+
 func TestRunMRChoosesAndHandlesCancellation(t *testing.T) {
 	entries := []*mr.Entry{
 		mrTestEntry("MR1", "First result", "2025"),

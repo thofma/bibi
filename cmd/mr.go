@@ -76,7 +76,7 @@ func runMR(cmd *cobra.Command, args []string) error {
 	if entry == nil || entry.BibTeX == nil {
 		return fmt.Errorf("MR result %d has no BibTeX entry", selected+1)
 	}
-	if _, err := fmt.Fprint(cmd.OutOrStdout(), entry.BibTeX.PrettyString()); err != nil {
+	if _, err := fmt.Fprint(cmd.OutOrStdout(), formatBibTeX(entry.BibTeX)); err != nil {
 		return fmt.Errorf("write BibTeX entry: %w", err)
 	}
 	return nil
