@@ -2,9 +2,11 @@ package zb
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/nickng/bibtex"
+	"github.com/thofma/bibi/lib/bibliography"
 )
 
 // ItemToBibEntry converts an individual zbMath item into a BibTeX entry.
@@ -34,9 +36,13 @@ func ItemToArticle(item Item) *bibtex.BibEntry {
 	entry := newBibEntry("article", item)
 	addCommonFields(entry, item)
 
-	addBibField(entry, "journal", ItemGetSeriesTitle(item))
+	addBibTextField(entry, "journal", ItemGetSeriesTitle(item))
+	if series, ok := firstSeries(item); ok {
+		addBibTextField(entry, "fjournal", series.Title)
+	}
 	addBibField(entry, "issn", ItemGetSeriesISSN(item))
 	addBibField(entry, "volume", ItemGetSeriesVolume(item))
+	addBibField(entry, "number", ItemGetSeriesIssue(item))
 	addBibField(entry, "year", firstNonEmpty(item.Year, ItemGetSeriesYear(item)))
 
 	return entry
@@ -51,7 +57,12 @@ func ItemToProceedingsArticle(item Item, relatedItems ...Item) (*bibtex.BibEntry
 	if bookTitle == "" && relatedBook != nil {
 		bookTitle = ItemGetTitle(*relatedBook)
 	}
-	addBibField(entry, "booktitle", bookTitle)
+	addBibTitleField(entry, "booktitle", bookTitle)
+	editors := ItemGetEditors(item)
+	if relatedBook != nil {
+		editors = firstNonEmpty(editors, ItemGetEditors(*relatedBook))
+	}
+	addBibTextField(entry, "editor", editors)
 
 	publisher := ItemGetBookPublisher(item)
 	isbn := ItemGetBookISBN(item)
@@ -62,7 +73,7 @@ func ItemToProceedingsArticle(item Item, relatedItems ...Item) (*bibtex.BibEntry
 		year = firstNonEmpty(year, ItemGetBookYear(*relatedBook), relatedBook.Year)
 	}
 
-	addBibField(entry, "publisher", publisher)
+	addBibTextField(entry, "publisher", publisher)
 	addBibField(entry, "isbn", isbn)
 	addBibField(entry, "year", firstNonEmpty(year, item.Year))
 
@@ -70,7 +81,7 @@ func ItemToProceedingsArticle(item Item, relatedItems ...Item) (*bibtex.BibEntry
 	if !hasSeries(seriesItem) && relatedBook != nil {
 		seriesItem = *relatedBook
 	}
-	addBibField(entry, "series", ItemGetSeriesTitle(seriesItem))
+	addBibTextField(entry, "series", ItemGetSeriesTitle(seriesItem))
 	addBibField(entry, "issn", ItemGetSeriesISSN(seriesItem))
 	addBibField(entry, "volume", ItemGetSeriesVolume(seriesItem))
 
@@ -81,10 +92,10 @@ func ItemToBook(item Item) *bibtex.BibEntry {
 	entry := newBibEntry("book", item)
 	addCommonFields(entry, item)
 
-	addBibField(entry, "editor", ItemGetEditors(item))
-	addBibField(entry, "publisher", ItemGetBookPublisher(item))
+	addBibTextField(entry, "editor", ItemGetEditors(item))
+	addBibTextField(entry, "publisher", ItemGetBookPublisher(item))
 	addBibField(entry, "isbn", ItemGetBookISBN(item))
-	addBibField(entry, "series", ItemGetSeriesTitle(item))
+	addBibTextField(entry, "series", ItemGetSeriesTitle(item))
 	addBibField(entry, "issn", ItemGetSeriesISSN(item))
 	addBibField(entry, "volume", ItemGetSeriesVolume(item))
 	addBibField(entry, "year", firstNonEmpty(ItemGetBookYear(item), item.Year, ItemGetSeriesYear(item)))
@@ -104,7 +115,7 @@ func ItemToPreprint(item Item) *bibtex.BibEntry {
 		addBibField(entry, "eprint", arXivID)
 		addBibField(entry, "archiveprefix", "arXiv")
 	} else {
-		addBibField(entry, "howpublished", item.Source.Source)
+		addBibTextField(entry, "howpublished", item.Source.Source)
 	}
 	addBibField(entry, "url", arXivURL)
 
@@ -116,14 +127,26 @@ func newBibEntry(entryType string, item Item) *bibtex.BibEntry {
 }
 
 func addCommonFields(entry *bibtex.BibEntry, item Item) {
-	addBibField(entry, "author", ItemGetAuthors(item))
-	addBibField(entry, "title", ItemGetTitle(item))
-	addBibField(entry, "pages", ItemGetSourcePages(item))
+	addBibTextField(entry, "author", ItemGetAuthors(item))
+	addBibTitleField(entry, "title", ItemGetTitle(item))
+	addBibField(entry, "pages", pageRangePattern.ReplaceAllString(ItemGetSourcePages(item), "$1--$2"))
 
 	doi, _ := ItemGetDOI(item)
 	addBibField(entry, "doi", doi)
 	if item.ID != 0 {
 		addBibField(entry, "zbmath", fmt.Sprintf("%d", item.ID))
+	}
+}
+
+var pageRangePattern = regexp.MustCompile(`([0-9]+)\s*[-–—]+\s*([0-9]+)`)
+
+func addBibTextField(entry *bibtex.BibEntry, name, value string) {
+	addBibField(entry, name, bibliography.EscapeTeXText(value))
+}
+
+func addBibTitleField(entry *bibtex.BibEntry, name, value string) {
+	if value = strings.TrimSpace(value); value != "" {
+		addBibField(entry, name, bibliography.ProtectTitle(bibliography.EscapeTeXText(value)))
 	}
 }
 
@@ -190,6 +213,27 @@ func ItemGetSeriesVolume(item Item) string {
 		return ""
 	}
 	return strings.TrimSpace(series.Volume)
+}
+
+func ItemGetSeriesIssue(item Item) string {
+	series, ok := firstSeries(item)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(series.Issue)
+}
+
+// ItemJournalNames keeps the two supplied journal names distinct even when the
+// default journal field falls back to the full name for lack of an abbreviation.
+func ItemJournalNames(item Item) bibliography.JournalNames {
+	series, ok := firstSeries(item)
+	if !ok || item.DocumentType.Code != "j" {
+		return bibliography.JournalNames{}
+	}
+	return bibliography.JournalNames{
+		Full:  bibliography.EscapeTeXText(strings.TrimSpace(series.Title)),
+		Short: bibliography.EscapeTeXText(strings.TrimSpace(series.ShortTitle)),
+	}
 }
 
 func ItemGetSeriesYear(item Item) string {

@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/lib/bibliography"
 	"github.com/thofma/bibi/lib/mr"
 	"github.com/thofma/bibi/util"
 )
@@ -26,10 +28,13 @@ Examples:
   bibi mr serre "a course in arithmetic" 1973
   bibi mr serre - 1973`,
 	Args: cobra.RangeArgs(1, 3),
-	RunE: runMR,
+	RunE: withDebug(runMR),
 }
 
 func runMR(cmd *cobra.Command, args []string) error {
+	if _, err := journalStyle(cmd); err != nil {
+		return err
+	}
 	if len(args) < 1 || len(args) > 3 {
 		return fmt.Errorf("expected one to three MR search arguments")
 	}
@@ -50,6 +55,7 @@ func runMR(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("query MR Lookup: %w", err)
 	}
+	diagnostics.Printf("MR Lookup returned %d results", len(entries))
 	if len(entries) == 0 {
 		return fmt.Errorf("no MR entries found")
 	}
@@ -76,10 +82,8 @@ func runMR(cmd *cobra.Command, args []string) error {
 	if entry == nil || entry.BibTeX == nil {
 		return fmt.Errorf("MR result %d has no BibTeX entry", selected+1)
 	}
-	if _, err := fmt.Fprint(cmd.OutOrStdout(), formatBibTeX(entry.BibTeX)); err != nil {
-		return fmt.Errorf("write BibTeX entry: %w", err)
-	}
-	return nil
+	diagnostics.Printf("writing MR result %d: %q, key=%s", selected+1, mrChoiceLabel(entry), entry.BibTeX.CiteName)
+	return writeBibTeX(cmd, entry.BibTeX, bibliography.JournalNamesFromEntry(entry.BibTeX))
 }
 
 func mrChoiceLabel(entry *mr.Entry) string {

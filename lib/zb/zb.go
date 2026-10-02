@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thofma/bibi/internal/diagnostics"
 	"github.com/thofma/bibi/lib/mr"
 )
 
@@ -72,7 +73,7 @@ func getZBURL(endpoint string, accept string) (string, error) {
 		req.Header.Set("Accept", accept)
 	}
 
-	resp, err := zbHTTPClient.Do(req)
+	resp, err := diagnostics.Do(zbHTTPClient, req)
 	if err != nil {
 		return "", fmt.Errorf("request zbMath: %w", err)
 	}
@@ -109,7 +110,28 @@ func Search(search string) (Response, error) {
 	}
 	response, err := ParseToStruct(body)
 	if err != nil {
+		diagnostics.Preview("zbMATH search", body)
 		return Response{}, fmt.Errorf("parse zbMath search response: %w", err)
+	}
+	return response, nil
+}
+
+// SearchDOI resolves a DOI through zbMATH's structured search.
+func SearchDOI(doi string) (Response, error) {
+	if strings.TrimSpace(doi) == "" {
+		return Response{}, fmt.Errorf("zbMath DOI cannot be empty")
+	}
+	body, err := getZBResponse(doi)
+	if err != nil {
+		if response, ok := zbNoResultsResponse(err); ok {
+			return response, nil
+		}
+		return Response{}, err
+	}
+	response, err := ParseToStruct(body)
+	if err != nil {
+		diagnostics.Preview("zbMATH DOI lookup", body)
+		return Response{}, fmt.Errorf("parse zbMath DOI response: %w", err)
 	}
 	return response, nil
 }

@@ -13,6 +13,8 @@ import (
 	"unicode"
 
 	"github.com/nickng/bibtex"
+	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/lib/bibliography"
 )
 
 const (
@@ -200,7 +202,7 @@ func mgpGet(baseURL string, values url.Values) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create MGP request: %w", err)
 	}
-	resp, err := mgpHTTPClient.Do(req)
+	resp, err := diagnostics.Do(mgpHTTPClient, req)
 	if err != nil {
 		return "", fmt.Errorf("request MGP: %w", err)
 	}
@@ -221,7 +223,7 @@ func CreateBibEntryForThesis(author, year, title, university string) *bibtex.Bib
 	key := thesisCitationKey(author, year)
 	entry := bibtex.NewBibEntry("phdthesis", key)
 	if author = strings.TrimSpace(author); author != "" {
-		entry.AddField("author", bibtex.NewBibConst(author))
+		entry.AddField("author", bibtex.NewBibConst(bibliography.EscapeTeXText(author)))
 	}
 	if title = strings.TrimSpace(title); title != "" {
 		entry.AddField("title", bibtex.NewBibConst(BibtexEncodeTitle(title)))
@@ -230,7 +232,7 @@ func CreateBibEntryForThesis(author, year, title, university string) *bibtex.Bib
 		entry.AddField("year", bibtex.NewBibConst(year))
 	}
 	if university = strings.TrimSpace(university); university != "" {
-		entry.AddField("school", bibtex.NewBibConst(university))
+		entry.AddField("school", bibtex.NewBibConst(bibliography.EscapeTeXText(university)))
 	}
 	return entry
 }
@@ -249,13 +251,9 @@ func thesisCitationKey(author, year string) string {
 	return familyName + strings.TrimSpace(year)
 }
 
-// BibtexEncodeTitle preserves capitalized words in BibTeX title fields.
+// BibtexEncodeTitle preserves source capitalization, mathematics, and spacing.
 func BibtexEncodeTitle(title string) string {
-	words := strings.Fields(title)
-	for i, word := range words {
-		words[i] = BibtexifyWord(word)
-	}
-	return strings.Join(words, " ")
+	return bibliography.ProtectTitle(bibliography.EscapeTeXText(title))
 }
 
 func BibtexifyWord(word string) string {

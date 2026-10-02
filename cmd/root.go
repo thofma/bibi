@@ -10,7 +10,7 @@ var rootCmd = &cobra.Command{
 	Use:   "bibi",
 	Short: "Retrieve BibTeX for mathematical literature",
 	Long: `bibi is a command line tool to retrieve bibliographic information
-for literature in mathematics using MR Lookup, zbMATH Open, and the
+for literature in mathematics using MR Lookup, zbMATH Open, Crossref, and the
 Mathematics Genealogy Project.`,
 	SilenceUsage: true,
 }
@@ -26,4 +26,9 @@ func commandExitCode(command *cobra.Command) int {
 		return 1
 	}
 	return 0
+}
+
+func init() {
+	addDebugFlag(rootCmd)
+	addBibTeXFlags(rootCmd)
 }

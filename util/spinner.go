@@ -6,6 +6,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/thofma/bibi/internal/diagnostics"
 )
 
 const spinnerInterval = 100 * time.Millisecond
@@ -24,7 +26,7 @@ type Spinner struct {
 // StartSpinner starts a terminal-only spinner. It does nothing for redirected
 // output so that non-interactive callers receive no control characters.
 func StartSpinner(writer io.Writer, message string) *Spinner {
-	return newSpinner(writer, message, isTerminal(writer), spinnerInterval)
+	return newSpinner(writer, message, isTerminal(writer) && !diagnostics.Enabled(), spinnerInterval)
 }
 
 func newSpinner(writer io.Writer, message string, enabled bool, interval time.Duration) *Spinner {

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thofma/bibi/internal/diagnostics"
 	"github.com/thofma/bibi/lib/zb"
 	"github.com/thofma/bibi/util"
 )
@@ -26,7 +27,7 @@ Examples:
   bibi zb "zhang p-adic"
   bibi zb "serre local fields"`,
 	Args: cobra.MinimumNArgs(1),
-	RunE: runZB,
+	RunE: withDebug(runZB),
 }
 
 // hexhexCmd preserves the original prototype command without advertising it.
@@ -34,10 +35,13 @@ var hexhexCmd = &cobra.Command{
 	Use:    "hexhex <search terms...>",
 	Hidden: true,
 	Args:   cobra.MinimumNArgs(1),
-	RunE:   runZB,
+	RunE:   withDebug(runZB),
 }
 
 func runZB(cmd *cobra.Command, args []string) error {
+	if _, err := journalStyle(cmd); err != nil {
+		return err
+	}
 	query := strings.TrimSpace(strings.Join(args, " "))
 	if query == "" {
 		return fmt.Errorf("zbMath search query cannot be empty")
@@ -49,6 +53,7 @@ func runZB(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("search zbMATH: %w", err)
 	}
+	diagnostics.Printf("zbMATH returned %d results", len(response.Result))
 	if len(response.Result) == 0 {
 		return fmt.Errorf("no zbMath entries found for %q", query)
 	}
@@ -80,10 +85,8 @@ func runZB(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("create BibTeX entry: %w", err)
 	}
-	if _, err := fmt.Fprint(cmd.OutOrStdout(), formatBibTeX(entry)); err != nil {
-		return fmt.Errorf("write BibTeX entry: %w", err)
-	}
-	return nil
+	diagnostics.Printf("writing zbMATH result %d: %q, key=%s", selected+1, zbChoiceLabel(results[selected]), entry.CiteName)
+	return writeBibTeX(cmd, entry, zb.ItemJournalNames(results[selected]))
 }
 
 func zbChoiceLabel(item zb.Item) string {

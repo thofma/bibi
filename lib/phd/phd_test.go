@@ -220,7 +220,7 @@ func TestMGPHTTPAndEntryErrors(t *testing.T) {
 }
 
 func TestBibtexEncodeTitle(t *testing.T) {
-	if got, want := BibtexEncodeTitle("An ABC theorem"), "{A}n {ABC} theorem"; got != want {
+	if got, want := BibtexEncodeTitle("An ABC theorem"), "{An ABC theorem}"; got != want {
 		t.Errorf("BibtexEncodeTitle() = %q, want %q", got, want)
 	}
 }

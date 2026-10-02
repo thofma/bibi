@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/lib/bibliography"
 	"github.com/thofma/bibi/lib/phd"
 	"github.com/thofma/bibi/util"
 )
@@ -25,10 +27,13 @@ Examples:
   bibi phd gauss
   bibi phd "carl gauss"`,
 	Args: cobra.MinimumNArgs(1),
-	RunE: runPhD,
+	RunE: withDebug(runPhD),
 }
 
 func runPhD(cmd *cobra.Command, args []string) error {
+	if _, err := journalStyle(cmd); err != nil {
+		return err
+	}
 	name := strings.TrimSpace(strings.Join(args, " "))
 	if name == "" {
 		return fmt.Errorf("a mathematician name is required")
@@ -40,6 +45,7 @@ func runPhD(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("query Mathematics Genealogy Project: %w", err)
 	}
+	diagnostics.Printf("Mathematics Genealogy Project returned %d results", len(entries))
 	if len(entries) == 0 {
 		return fmt.Errorf("no PhD theses found")
 	}
@@ -69,10 +75,8 @@ func runPhD(cmd *cobra.Command, args []string) error {
 	if bib == nil {
 		return fmt.Errorf("selected PhD result has no BibTeX entry")
 	}
-	if _, err := fmt.Fprint(cmd.OutOrStdout(), formatBibTeX(bib)); err != nil {
-		return fmt.Errorf("write BibTeX entry: %w", err)
-	}
-	return nil
+	diagnostics.Printf("writing PhD result %d: %q, key=%s", selected+1, phdChoiceLabel(entries[selected]), bib.CiteName)
+	return writeBibTeX(cmd, bib, bibliography.JournalNames{})
 }
 
 func phdChoiceLabel(entry phd.MGPEntry) string {

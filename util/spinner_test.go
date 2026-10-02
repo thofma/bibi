@@ -2,10 +2,27 @@ package util
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/thofma/bibi/internal/diagnostics"
 )
+
+func TestStartSpinnerSkipsDebugOutput(t *testing.T) {
+	file, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	defer diagnostics.SetOutput(file)()
+	spinner := StartSpinner(file, "Searching")
+	defer spinner.Stop()
+	if spinner.stop != nil {
+		t.Fatal("debug mode started an animated spinner")
+	}
+}
 
 func TestStartSpinnerSkipsRedirectedOutput(t *testing.T) {
 	var output bytes.Buffer

@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"github.com/nickng/bibtex"
+	"github.com/spf13/cobra"
+	"github.com/thofma/bibi/lib/bibliography"
 )
 
 func TestFormatBibTeXPreservesFieldContents(t *testing.T) {
@@ -42,6 +45,63 @@ func TestFormatBibTeXPreservesFieldContents(t *testing.T) {
 				t.Errorf("title = %q, want %q", got, value)
 			}
 		})
+	}
+}
+
+func TestWriteBibTeXWarnsWithoutChangingOutputFlow(t *testing.T) {
+	entry := bibtex.NewBibEntry("inproceedings", "Incomplete")
+	entry.AddField("author", bibtex.NewBibConst("Doe, Jane"))
+	entry.AddField("title", bibtex.NewBibConst("A chapter"))
+	entry.AddField("year", bibtex.NewBibConst("1999"))
+	command := &cobra.Command{}
+	var stdout, stderr bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(&stderr)
+	if err := writeBibTeX(command, entry, bibliography.JournalNames{}); err != nil {
+		t.Fatal(err)
+	}
+	assertMRBibTeX(t, stdout.String(), "Incomplete")
+	if stdout.String() != formatBibTeX(entry) || strings.Contains(stdout.String(), "Warning") {
+		t.Errorf("quality warning changed stdout: %q", stdout.String())
+	}
+	if got, want := stderr.String(), "Warning: Incomplete: missing required BibTeX fields: booktitle\n"; got != want {
+		t.Errorf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestWriteBibTeXPreservesNativeExports(t *testing.T) {
+	const source = `@article{MR1,
+  AUTHOR = {van der Waerden, B. L. and G{\"o}del, Kurt and Ducas, L\'eo},
+  TITLE = {An {ABC} theorem on {$GL_2(\mathbb{Q})$} and {Galois} theory},
+  JOURNAL = {Algebra \& Number Theory},
+  FJOURNAL = {Algebra \& Number Theory},
+  YEAR = {1999},
+  NOTE = {Göttingen and Léo},
+  DOI = {10.1000/a\_b},
+}`
+	parsed, err := bibtex.Parse(strings.NewReader(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := parsed.Entries[0]
+	command := &cobra.Command{}
+	var stdout, stderr bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(&stderr)
+	if err := writeBibTeX(command, entry, bibliography.JournalNamesFromEntry(entry)); err != nil {
+		t.Fatal(err)
+	}
+	output, err := bibtex.Parse(strings.NewReader(stdout.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range entry.Fields {
+		if got := output.Entries[0].Fields[key].String(); got != value.String() {
+			t.Errorf("native %s = %q, want %q", key, got, value.String())
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("complete native entry produced warnings: %s", stderr.String())
 	}
 }
 

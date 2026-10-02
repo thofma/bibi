@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nickng/bibtex"
+	"github.com/thofma/bibi/internal/diagnostics"
 )
 
 const (
@@ -51,11 +52,15 @@ func MRQueryAYT(author, year, title string) ([]*Entry, error) {
 
 	entries := make([]*Entry, 0, len(responses))
 	for i, response := range responses {
+		diagnostics.Printf("MR stage=parse result=%d", i+1)
+		diagnostics.Preview(fmt.Sprintf("MR BibTeX result %d", i+1), response)
 		parsed, err := bibtex.Parse(bytes.NewReader([]byte(response)))
 		if err != nil {
+			diagnostics.Printf("MR stage=parse failed result=%d: %v", i+1, err)
 			return nil, fmt.Errorf("parse MR BibTeX result %d: %w", i+1, err)
 		}
 		if len(parsed.Entries) == 0 {
+			diagnostics.Printf("MR stage=parse failed result=%d: export contains no BibTeX entry", i+1)
 			return nil, fmt.Errorf("MR BibTeX result %d contains no entry", i+1)
 		}
 
@@ -99,7 +104,7 @@ func mrMultiResponseFromAYT(author, year, title string) ([]string, error) {
 		return nil, fmt.Errorf("create MR Lookup request: %w", err)
 	}
 
-	resp, err := mrHTTPClient.Do(req)
+	resp, err := diagnostics.Do(mrHTTPClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("request MR Lookup: %w", err)
 	}
@@ -115,13 +120,21 @@ func mrMultiResponseFromAYT(author, year, title string) ([]string, error) {
 
 	var payload lookupResponse
 	if err := json.Unmarshal(body, &payload); err != nil {
+		diagnostics.Printf("MR stage=response-parse failed: %v", err)
+		diagnostics.Preview("MR Lookup", string(body))
 		return nil, fmt.Errorf("parse MR Lookup response: %w", err)
+	}
+	diagnostics.Printf("MR Lookup response all.results=%d", len(payload.All.Results))
+	if len(payload.All.Results) == 0 {
+		diagnostics.Preview("MR Lookup with no results", string(body))
 	}
 
 	responses := make([]string, 0, len(payload.All.Results))
 	for i, result := range payload.All.Results {
 		bibTeX := strings.TrimSpace(result.BibTeXFormat)
 		if bibTeX == "" {
+			diagnostics.Printf("MR stage=export failed: API result %d has no bibTexFormat", i+1)
+			diagnostics.Preview("MR Lookup", string(body))
 			return nil, fmt.Errorf("MR Lookup result %d has no BibTeX", i+1)
 		}
 		responses = append(responses, bibTeX)

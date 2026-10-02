@@ -95,7 +95,7 @@ func TestRunZBChoosesAmongMultipleResults(t *testing.T) {
 	}
 }
 
-func TestRunZBAllowsProceedingsWithoutBookTitle(t *testing.T) {
+func TestRunZBWarnsAboutProceedingsWithoutBookTitle(t *testing.T) {
 	useZBSearch(t, func(string) (zb.Response, error) {
 		return zb.Response{Result: []zb.Item{{
 			DocumentType: zb.DocumentType{Code: "a"},
@@ -106,8 +106,9 @@ func TestRunZBAllowsProceedingsWithoutBookTitle(t *testing.T) {
 	})
 
 	command := &cobra.Command{}
-	var output bytes.Buffer
+	var output, stderr bytes.Buffer
 	command.SetOut(&output)
+	command.SetErr(&stderr)
 	if err := runZB(command, []string{"incomplete"}); err != nil {
 		t.Fatalf("runZB() error = %v", err)
 	}
@@ -120,6 +121,9 @@ func TestRunZBAllowsProceedingsWithoutBookTitle(t *testing.T) {
 	}
 	if _, ok := parsed.Entries[0].Fields["booktitle"]; ok {
 		t.Errorf("booktitle = %q, want omitted", parsed.Entries[0].Fields["booktitle"])
+	}
+	if !strings.Contains(stderr.String(), "missing required BibTeX fields: author, booktitle") {
+		t.Errorf("stderr = %q, want missing booktitle warning", stderr.String())
 	}
 }
 
@@ -276,6 +280,7 @@ func journalResult(id int, title string) zb.Item {
 		ID:           id,
 		Title:        zb.Title{Title: title},
 		Year:         "2026",
+		Source:       zb.Source{Series: []zb.Series{{Title: "Example Journal", ShortTitle: "Ex. J."}}},
 	}
 }
 
