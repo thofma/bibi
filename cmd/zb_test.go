@@ -9,6 +9,7 @@ import (
 	"github.com/nickng/bibtex"
 	"github.com/spf13/cobra"
 	"github.com/thofma/bibi/lib/zb"
+	"github.com/thofma/bibi/util"
 )
 
 func useZBSearch(t *testing.T, search func(string) (zb.Response, error)) {
@@ -23,7 +24,7 @@ func useZBSearch(t *testing.T, search func(string) (zb.Response, error)) {
 func useZBChoose(t *testing.T, choose func([]string) (int, error)) {
 	t.Helper()
 	originalChoose := zbChoose
-	zbChoose = choose
+	zbChoose = func(request util.ChooserRequest) (int, error) { return choose(choiceLabels(request)) }
 	t.Cleanup(func() {
 		zbChoose = originalChoose
 	})

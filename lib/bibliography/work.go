@@ -2,9 +2,11 @@
 package bibliography
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/nickng/bibtex"
@@ -19,12 +21,28 @@ type Work struct {
 	Authors []string
 	Editors []string
 	Year    string
+	Venue   string
+	Type    string
+	Edition string
+	Notes   string
 	DOI     string
 	IDs     map[string]string
 }
 
 type Discoverer interface {
 	Search(query string) ([]Work, error)
+}
+
+// SearchPage uses an opaque continuation token so discovery services can use
+// their own pagination mechanism. An empty NextToken means there are no more results.
+type SearchPage struct {
+	Works     []Work
+	NextToken string
+	Total     int
+}
+
+type PagedDiscoverer interface {
+	SearchPage(ctx context.Context, query, token string) (SearchPage, error)
 }
 
 // Provider retrieves candidates from the requested BibTeX service only.
@@ -57,6 +75,66 @@ func (work Work) Label() string {
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// Details shows the metadata supplied by the source, without inferring editions
+// or publication status from titles or identifiers.
+func (work Work) Details() string {
+	var lines []string
+	add := func(label, value string) {
+		if strings.TrimSpace(value) != "" {
+			lines = append(lines, label+": "+value)
+		}
+	}
+	add("Title", work.Title)
+	add("Authors", strings.Join(work.Authors, "; "))
+	add("Editors", strings.Join(work.Editors, "; "))
+	add("Year", work.Year)
+	add("Venue", work.Venue)
+	add("Type", work.Type)
+	add("Edition", work.Edition)
+	add("Notes", work.Notes)
+	add("DOI", work.DOI)
+	keys := make([]string, 0, len(work.IDs))
+	for key := range work.IDs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		add(key, work.IDs[key])
+	}
+	return strings.Join(lines, "\n\n")
+}
+
+// WorkFromEntry exposes existing BibTeX metadata for candidate and legacy pickers.
+func WorkFromEntry(entry *bibtex.BibEntry) Work {
+	if entry == nil {
+		return Work{}
+	}
+	field := func(name string) string {
+		for key, value := range entry.Fields {
+			if strings.EqualFold(key, name) {
+				return strings.TrimSpace(value.String())
+			}
+		}
+		return ""
+	}
+	names := func(value string) []string {
+		if value == "" {
+			return nil
+		}
+		return strings.Split(value, " and ")
+	}
+	work := Work{Title: field("title"), Authors: names(field("author")), Editors: names(field("editor")),
+		Year: field("year"), DOI: field("doi"), Type: entry.Type,
+		Edition: field("edition"), Notes: field("note")}
+	for _, name := range []string{"fjournal", "journal", "booktitle", "school", "publisher"} {
+		if venue := field(name); venue != "" {
+			work.Venue = venue
+			break
+		}
+	}
+	return work
 }
 
 // Query builds a metadata query for mapping a selected work to another service.

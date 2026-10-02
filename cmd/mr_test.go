@@ -9,6 +9,7 @@ import (
 	"github.com/nickng/bibtex"
 	"github.com/spf13/cobra"
 	"github.com/thofma/bibi/lib/mr"
+	"github.com/thofma/bibi/util"
 )
 
 func useMRQuery(t *testing.T, query func(string, string, string) ([]*mr.Entry, error)) {
@@ -23,7 +24,7 @@ func useMRQuery(t *testing.T, query func(string, string, string) ([]*mr.Entry, e
 func useMRChoose(t *testing.T, choose func([]string) (int, error)) {
 	t.Helper()
 	originalChoose := mrChoose
-	mrChoose = choose
+	mrChoose = func(request util.ChooserRequest) (int, error) { return choose(choiceLabels(request)) }
 	t.Cleanup(func() {
 		mrChoose = originalChoose
 	})

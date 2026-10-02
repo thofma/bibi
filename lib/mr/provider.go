@@ -32,10 +32,9 @@ func (Provider) BibTeX(work bibliography.Work) ([]bibliography.Record, error) {
 			diagnostics.Printf("bib mr skipped record %d: missing BibTeX entry", i+1)
 			continue
 		}
-		candidate := bibliography.Work{
-			Title: entry.Title, Authors: entry.Authors, Year: entry.Year,
-			IDs: map[string]string{"mr": entry.BibTeX.CiteName},
-		}
+		candidate := bibliography.WorkFromEntry(entry.BibTeX)
+		candidate.Title, candidate.Authors, candidate.Year = entry.Title, entry.Authors, entry.Year
+		candidate.IDs = map[string]string{"mr": entry.BibTeX.CiteName}
 		if entry.Doi != nil {
 			candidate.DOI = *entry.Doi
 		}

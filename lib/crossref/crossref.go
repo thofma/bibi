@@ -2,6 +2,7 @@
 package crossref
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -50,53 +51,71 @@ type item struct {
 	PublishedPrint  date          `json:"published-print"`
 	PublishedOnline date          `json:"published-online"`
 	Issued          date          `json:"issued"`
+	Type            string        `json:"type"`
+	Subtype         string        `json:"subtype"`
+	Edition         string        `json:"edition-number"`
 }
 
 func (backend *Backend) Search(query string) ([]bibliography.Work, error) {
+	page, err := backend.SearchPage(context.Background(), query, "")
+	return page.Works, err
+}
+
+func (backend *Backend) SearchPage(ctx context.Context, query, token string) (bibliography.SearchPage, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return nil, fmt.Errorf("Crossref search query cannot be empty")
+		return bibliography.SearchPage{}, fmt.Errorf("Crossref search query cannot be empty")
 	}
 	if doi, ok := bibliography.DOIQuery(query); ok {
-		body, found, err := backend.get("/works/"+doi, nil, "application/json")
+		body, found, err := backend.getContext(ctx, "/works/"+doi, nil, "application/json")
 		if err != nil || !found {
-			return nil, err
+			return bibliography.SearchPage{}, err
 		}
 		var payload struct {
 			Message item `json:"message"`
 		}
 		if err := json.Unmarshal(body, &payload); err != nil {
-			return nil, fmt.Errorf("parse Crossref DOI response: %w", err)
+			return bibliography.SearchPage{}, fmt.Errorf("parse Crossref DOI response: %w", err)
 		}
 		work := payload.Message.work()
 		if bibliography.NormalizeDOI(work.DOI) != doi {
-			return nil, fmt.Errorf("Crossref returned a different DOI for %q", doi)
+			return bibliography.SearchPage{}, fmt.Errorf("Crossref returned a different DOI for %q", doi)
 		}
 		backend.rememberJournals(payload.Message)
-		return []bibliography.Work{work}, nil
+		return bibliography.SearchPage{Works: []bibliography.Work{work}, Total: 1}, nil
 	}
 
 	values := url.Values{}
 	values.Set("query.bibliographic", query)
 	values.Set("rows", strconv.Itoa(bibliography.MaxResults))
-	body, _, err := backend.get("/works", values, "application/json")
+	if token == "" {
+		token = "*"
+	}
+	values.Set("cursor", token)
+	body, _, err := backend.getContext(ctx, "/works", values, "application/json")
 	if err != nil {
-		return nil, err
+		return bibliography.SearchPage{}, err
 	}
 	var payload struct {
 		Message struct {
-			Items []item `json:"items"`
+			Items     []item `json:"items"`
+			NextToken string `json:"next-cursor"`
+			Total     int    `json:"total-results"`
 		} `json:"message"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("parse Crossref search response: %w", err)
+		return bibliography.SearchPage{}, fmt.Errorf("parse Crossref search response: %w", err)
 	}
 	works := make([]bibliography.Work, 0, len(payload.Message.Items))
 	for _, item := range payload.Message.Items {
 		backend.rememberJournals(item)
 		works = append(works, item.work())
 	}
-	return works, nil
+	page := bibliography.SearchPage{Works: works, Total: payload.Message.Total}
+	if len(works) == bibliography.MaxResults && (page.Total == 0 || page.Total > len(works)) {
+		page.NextToken = payload.Message.NextToken
+	}
+	return page, nil
 }
 
 // BibTeX requires a DOI and retrieves only Crossref's export, without fallback.
@@ -133,10 +152,8 @@ func (backend *Backend) BibTeX(work bibliography.Work) ([]bibliography.Record, e
 		return nil, fmt.Errorf("Crossref export has a different DOI from the selected work")
 	}
 	// The exact DOI route establishes identity even if the export omits its DOI field.
-	candidate := bibliography.Work{
-		Title: field(entry, "title"), Authors: strings.Split(field(entry, "author"), " and "),
-		Year: field(entry, "year"), DOI: doi,
-	}
+	candidate := bibliography.WorkFromEntry(entry)
+	candidate.DOI = doi
 	names := backend.journals[doi]
 	if full := field(entry, "journal"); full != "" {
 		names.Full = full
@@ -171,6 +188,10 @@ func parseBibTeX(body []byte) (*bibtex.BibTex, error) {
 }
 
 func (backend *Backend) get(path string, values url.Values, accept string) ([]byte, bool, error) {
+	return backend.getContext(context.Background(), path, values, accept)
+}
+
+func (backend *Backend) getContext(ctx context.Context, path string, values url.Values, accept string) ([]byte, bool, error) {
 	base := backend.BaseURL
 	if base == "" {
 		base = defaultBaseURL
@@ -182,7 +203,7 @@ func (backend *Backend) get(path string, values url.Values, accept string) ([]by
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + path
 	endpoint.RawPath = ""
 	endpoint.RawQuery = values.Encode()
-	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("create Crossref request: %w", err)
 	}
@@ -211,7 +232,13 @@ func (backend *Backend) get(path string, values url.Values, accept string) ([]by
 }
 
 func (item item) work() bibliography.Work {
-	work := bibliography.Work{DOI: item.DOI}
+	work := bibliography.Work{DOI: item.DOI, Type: item.Type, Edition: item.Edition}
+	if item.Subtype != "" {
+		work.Notes = "Subtype: " + item.Subtype
+	}
+	if len(item.ContainerTitle) > 0 {
+		work.Venue = strings.Join(item.ContainerTitle, "; ")
+	}
 	if len(item.Title) > 0 {
 		work.Title = item.Title[0]
 	}

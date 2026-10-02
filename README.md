@@ -21,6 +21,7 @@ from MathSciNet's limited free MRTools search, [zbMATH Open](https://zbmath.org/
 - [Quick Start](#quick-start)
 - [Usage](#usage)
   - [Search](#search)
+  - [Add to a bibliography](#add-to-a-bibliography)
   - [zbMATH Open](#zbmath-open)
   - [MR Lookup](#mr-lookup)
   - [Mathematics Genealogy Project](#mathematics-genealogy-project)
@@ -59,9 +60,17 @@ bibi search "zhang p-adic"
 If the search returns more than one match, choose a result when prompted. `bibi`
 prints its BibTeX entry to standard output.
 
+To save an entry directly into your bibliography:
+
+```sh
+bibi add "serre local fields" references.bib --bib mr
+```
+
 ## Usage
 
-Each command writes a single BibTeX entry to standard output. Search progress,
+`search`, `zb`, `mr`, and `phd` write a single BibTeX entry to standard output.
+`add` saves the entry to the specified file and reports its citation key on
+standard error. Search progress,
 errors, and the interactive result picker are written to standard error. Press
 `q` or `Ctrl-C` to cancel a picker.
 
@@ -88,7 +97,23 @@ Crossref discovery uses its
 [`query.bibliographic` search](https://api.crossref.org/swagger-ui/index.html).
 A year in a free-text query is a search term, not a strict year filter.
 
-Choose among up to ten discovery results. Once a work is selected, bibi queries
+The picker shows ten discovery results at a time. Use `n` for the next page and
+`p` for a previously loaded page. Further pages are fetched only when requested;
+visited pages are cached. A page request failure keeps the current results visible
+and offers `n` to retry. Exact DOI lookups have no further pages.
+
+Move with the arrow keys to see complete titles, authors, editors, venue, year,
+publication type, DOI, and database identifiers in the detail pane. Source-supplied
+edition and version information appears as edition metadata or notes; bibi does
+not guess it from a title or an arXiv link. Press `Tab` to scroll the details with
+the arrow keys or `PgUp`/`PgDn`, then `Tab` to return to the results. Small terminals
+switch between results and details with `Tab`.
+
+The picker uses rounded panels, a highlighted selection, and coloured key hints.
+The active panel has a brighter border. Colours adapt to light and dark terminals;
+set `NO_COLOR=1` to keep the layout without colours.
+
+Once a work is selected, bibi queries
 only the requested BibTeX provider. Candidates with conflicting DOIs are excluded,
 and matching DOIs or service identifiers take priority. A single remaining
 candidate is returned directly, even when discovery has no DOI. A second picker
@@ -109,6 +134,46 @@ MR queries use the first author's family name when discovery supplies a
 `van der Waerden, B. L.` becomes `van der Waerden`. Names without a comma are
 kept intact. This changes only the lookup query; the exported BibTeX retains
 MR's full author names.
+
+### Add to a bibliography
+
+```sh
+bibi add "serre local fields" references.bib --bib mr
+bibi add "10.1016/j.jnt.2016.05.016" references.bib --key Hofmann2016
+bibi add "local fields" references.bib --discovery crossref --bib mr --dry-run
+```
+
+The two positional arguments are the query and the destination file. Quote
+multiword queries. `add` uses the same discovery, result picker, BibTeX providers,
+and journal preferences as `search`; both discovery and BibTeX default to zbMATH.
+
+The provider's citation key is retained unless you supply `--key`. A new entry
+is appended, or a missing file is created if its parent directory exists. A
+shared DOI, MR number, zbMATH identifier, Zbl number, or explicitly marked arXiv
+identifier identifies an existing entry: bibi reports its existing key and leaves
+the file untouched. arXiv versions remain distinct. Matching titles, authors,
+or years alone do not establish a duplicate.
+
+Duplicate checks use identifiers from the exported BibTeX. Conflicting identifiers
+or a key already used for an unverified work stop the add. Key collisions include
+case variants; use `--key` to choose another key. Existing entries are never
+updated or merged.
+
+`--dry-run` checks the destination and prints the proposed entry to standard
+output without creating or changing any files. If the entry is already present,
+it reports the existing key without printing a new entry.
+
+Existing text, comments, string macros, formatting, and LF or CRLF line endings
+are preserved. Identifier fields can use defined string macros and concatenation;
+unresolved macros in ordinary fields, such as external journal abbreviations,
+are kept untouched. Malformed files or identifier values that cannot be safely
+evaluated produce an error before saving. Existing symlinks are followed and file
+permissions are preserved; new files have private permissions.
+
+The file is checked again after selection. Concurrent bibi adds are coordinated
+with a lock in the OS temporary directory. Writes use a flushed temporary file
+in the destination directory, and detected outside edits during saving stop the
+write. Cancellation or a failed lookup leaves the destination untouched.
 
 ### zbMATH Open
 
@@ -172,7 +237,7 @@ For example, a proceedings article without `booktitle` produces:
 Warning: zbMATH123: missing required BibTeX fields: booktitle
 ```
 
-Warnings go to standard error. The entry is still printed to standard output,
+Warnings go to standard error. The entry is still exported or added to the file,
 and a successful retrieval still exits successfully, with no extra selection.
 Edited books can use an editor instead of an author; DOI, issue number, volume,
 and pages are optional. For preprints represented as `misc`, bibi checks that a
@@ -186,6 +251,7 @@ Add `--debug` to any lookup command:
 bibi search "local fields" --bib mr --debug
 bibi --debug search "10.1016/j.jnt.2016.05.016" --discovery crossref --bib mr
 bibi mr serre "a course in arithmetic" 1973 --debug
+bibi add "local fields" references.bib --bib mr --debug
 ```
 
 Use this to diagnose when and why `--bib` fails. The trace shows the selected
@@ -201,6 +267,9 @@ native records discarded inside the adapter and unsupported document types.
 Provider responses and exports appear as quoted excerpts capped at 2048 bytes,
 alongside request URLs, HTTP status, and timing. Spinners are disabled during
 debug runs.
+
+For `add`, the trace also identifies preflight checks, verified duplicates, and
+save failures after a successful provider lookup.
 
 Diagnostics go to standard error, leaving standard output available for BibTeX:
 

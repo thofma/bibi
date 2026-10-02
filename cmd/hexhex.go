@@ -12,7 +12,7 @@ import (
 
 var (
 	zbSearch = zb.Search
-	zbChoose = util.RunChooser
+	zbChoose = util.RunDetailedChooser
 )
 
 var zbCmd = &cobra.Command{
@@ -65,11 +65,12 @@ func runZB(cmd *cobra.Command, args []string) error {
 
 	selected := 0
 	if len(results) > 1 {
-		choices := make([]string, len(results))
+		choices := make([]util.Choice, len(results))
 		for i, result := range results {
-			choices[i] = zbChoiceLabel(result)
+			choices[i] = util.Choice{Label: zbChoiceLabel(result), Details: zb.ItemWork(result).Details()}
 		}
-		selected, err = zbChoose(choices)
+		selected, err = zbChoose(util.ChooserRequest{Title: "Choose zbMATH result", ChoicePage: util.ChoicePage{Choices: choices},
+			Context: cmd.Context(), Output: cmd.ErrOrStderr()})
 		if err != nil {
 			return fmt.Errorf("choose zbMATH result: %w", err)
 		}

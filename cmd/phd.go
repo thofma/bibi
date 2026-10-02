@@ -14,7 +14,7 @@ import (
 var (
 	phdQuery     = phd.MGPQueryAndResponse
 	phdGetBibTeX = phd.MGPEntryGetBibtex
-	phdChoose    = util.RunChooser
+	phdChoose    = util.RunDetailedChooser
 )
 
 var phdCmd = &cobra.Command{
@@ -52,11 +52,14 @@ func runPhD(cmd *cobra.Command, args []string) error {
 
 	selected := 0
 	if len(entries) > 1 {
-		choices := make([]string, len(entries))
+		choices := make([]util.Choice, len(entries))
 		for i, entry := range entries {
-			choices[i] = phdChoiceLabel(entry)
+			work := bibliography.Work{Title: entry.Title, Authors: []string{entry.Author}, Year: entry.Year, Venue: entry.University,
+				Type: "PhD thesis", IDs: map[string]string{"mgp": entry.ID}}
+			choices[i] = util.Choice{Label: phdChoiceLabel(entry), Details: work.Details()}
 		}
-		selected, err = phdChoose(choices)
+		selected, err = phdChoose(util.ChooserRequest{Title: "Choose thesis", ChoicePage: util.ChoicePage{Choices: choices},
+			Context: cmd.Context(), Output: cmd.ErrOrStderr()})
 		if err != nil {
 			return fmt.Errorf("choose PhD result: %w", err)
 		}

@@ -13,7 +13,7 @@ import (
 
 var (
 	mrQuery  = mr.MRQueryAYT
-	mrChoose = util.RunChooser
+	mrChoose = util.RunDetailedChooser
 )
 
 var mrCmd = &cobra.Command{
@@ -62,11 +62,20 @@ func runMR(cmd *cobra.Command, args []string) error {
 
 	selected := 0
 	if len(entries) > 1 {
-		choices := make([]string, len(entries))
+		choices := make([]util.Choice, len(entries))
 		for i, entry := range entries {
-			choices[i] = mrChoiceLabel(entry)
+			choices[i].Label = mrChoiceLabel(entry)
+			if entry != nil {
+				work := bibliography.WorkFromEntry(entry.BibTeX)
+				work.Title, work.Authors, work.Year = entry.Title, entry.Authors, entry.Year
+				if entry.BibTeX != nil {
+					work.IDs = map[string]string{"mr": entry.BibTeX.CiteName}
+				}
+				choices[i].Details = work.Details()
+			}
 		}
-		selected, err = mrChoose(choices)
+		selected, err = mrChoose(util.ChooserRequest{Title: "Choose MR result", ChoicePage: util.ChoicePage{Choices: choices},
+			Context: cmd.Context(), Output: cmd.ErrOrStderr()})
 		if err != nil {
 			return fmt.Errorf("choose MR result: %w", err)
 		}

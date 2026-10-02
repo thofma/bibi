@@ -2,6 +2,9 @@ package zb
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +14,68 @@ import (
 	"github.com/thofma/bibi/internal/diagnostics"
 	"github.com/thofma/bibi/lib/bibliography"
 )
+
+func TestSearchPagesRetainNativeRecordsAcrossPages(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		query := r.URL.Query()
+		if query.Get("search_string") != "free search" || query.Get("results_per_page") != "10" {
+			t.Errorf("request = %s", r.URL)
+		}
+		var items []string
+		switch query.Get("page") {
+		case "0":
+			for id := 1; id <= 10; id++ {
+				items = append(items, fmt.Sprintf(`{"id":%d,"document_type":{"code":"j"},"title":{"title":"Work %d"}}`, id, id))
+			}
+		case "1":
+			items = append(items, `{"id":11,"document_type":{"code":"j"},"title":{"title":"Later work"}}`)
+		default:
+			t.Errorf("unexpected page: %s", r.URL)
+		}
+		fmt.Fprintf(w, `{"result":[%s],"status":{"nr_total_results":11}}`, strings.Join(items, ","))
+	}))
+	defer server.Close()
+	useZBTestAPI(t, server.URL, server.Client())
+	backend := &Backend{}
+	first, err := backend.SearchPage(context.Background(), "free search", "")
+	if err != nil || len(first.Works) != 10 || first.NextToken != "1" || first.Total != 11 {
+		t.Fatalf("first = %+v, error = %v", first, err)
+	}
+	last, err := backend.SearchPage(context.Background(), "free search", first.NextToken)
+	if err != nil || len(last.Works) != 1 || last.NextToken != "" {
+		t.Fatalf("last = %+v, error = %v", last, err)
+	}
+	for _, work := range []bibliography.Work{first.Works[0], last.Works[0]} {
+		records, err := backend.BibTeX(work)
+		if err != nil || len(records) != 1 || records[0].Title != work.Title {
+			t.Fatalf("wrong cached record: %+v, error = %v", records, err)
+		}
+	}
+	if requests != 2 {
+		t.Fatalf("native exports triggered more requests: %d", requests)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := backend.SearchPage(ctx, "free search", "1"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled request error = %v", err)
+	}
+}
+
+func TestItemWorkShowsSourceTypeAndEditionNotes(t *testing.T) {
+	item := Item{ID: 42, Database: "Zbl", Identifier: "1156.11046", Title: Title{Title: "Work", Addition: "2nd ed."},
+		DocumentType: DocumentType{Code: "j", Description: "journal article"},
+		Source:       Source{Source: "Full journal citation"},
+		Links:        []Link{{Type: "arxiv", Identifier: "arXiv:1234.5678"}}}
+	work := ItemWork(item)
+	if work.Type != "journal article" || work.Notes != "2nd ed." || work.Venue != "Full journal citation" || work.IDs["zbl"] != "1156.11046" || work.IDs["arxiv"] != "1234.5678" {
+		t.Fatalf("source metadata = %+v", work)
+	}
+	if work.Type == "preprint" {
+		t.Fatal("arXiv link changed publication status")
+	}
+}
 
 func TestBackendRetainsNativeRecordsForBibTeX(t *testing.T) {
 	requests := 0

@@ -32,9 +32,21 @@ func journalStyle(command *cobra.Command) (string, error) {
 // writeBibTeX is the shared output path for all providers. Warnings never enter
 // the BibTeX stream or prompt for another selection.
 func writeBibTeX(command *cobra.Command, entry *bibtex.BibEntry, names bibliography.JournalNames) error {
-	style, err := journalStyle(command)
+	entry, err := prepareBibTeX(command, entry, names)
 	if err != nil {
 		return err
+	}
+	if _, err := fmt.Fprint(command.OutOrStdout(), formatBibTeX(entry)); err != nil {
+		return fmt.Errorf("write BibTeX entry: %w", err)
+	}
+	return nil
+}
+
+// prepareBibTeX applies the shared journal preference and quality warnings once.
+func prepareBibTeX(command *cobra.Command, entry *bibtex.BibEntry, names bibliography.JournalNames) (*bibtex.BibEntry, error) {
+	style, err := journalStyle(command)
+	if err != nil {
+		return nil, err
 	}
 	entry, warning := bibliography.WithJournalName(entry, names, style)
 	var warnings []string
@@ -47,13 +59,10 @@ func writeBibTeX(command *cobra.Command, entry *bibtex.BibEntry, names bibliogra
 	for _, warning := range warnings {
 		diagnostics.Printf("bib key=%q stage=quality warning: %s", entry.CiteName, warning)
 		if _, err := fmt.Fprintf(command.ErrOrStderr(), "Warning: %s: %s\n", entry.CiteName, warning); err != nil {
-			return fmt.Errorf("write BibTeX warning: %w", err)
+			return nil, fmt.Errorf("write BibTeX warning: %w", err)
 		}
 	}
-	if _, err := fmt.Fprint(command.OutOrStdout(), formatBibTeX(entry)); err != nil {
-		return fmt.Errorf("write BibTeX entry: %w", err)
-	}
-	return nil
+	return entry, nil
 }
 
 // formatBibTeX aligns fields while preserving their contents verbatim.

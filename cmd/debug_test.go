@@ -13,6 +13,7 @@ import (
 	"github.com/thofma/bibi/lib/mr"
 	"github.com/thofma/bibi/lib/phd"
 	"github.com/thofma/bibi/lib/zb"
+	"github.com/thofma/bibi/util"
 )
 
 func debugTestRoot(command *cobra.Command) *cobra.Command {
@@ -113,7 +114,7 @@ func TestDebugExplainsAutomaticUnverifiedCandidate(t *testing.T) {
 			return []bibliography.Record{searchRecord("MR1", "10.1000/example")}, nil
 		})},
 	}
-	root := debugTestRoot(newSearchCommand(func() searchServices { return services }, func([]string) (int, error) {
+	root := debugTestRoot(newSearchCommand(func() searchServices { return services }, func(util.ChooserRequest) (int, error) {
 		t.Fatal("single unverified candidate opened a picker")
 		return 0, nil
 	}))
@@ -175,7 +176,7 @@ func TestDebugExplainsBibFailureStage(t *testing.T) {
 					return test.records, test.providerErr
 				})},
 			}
-			root := debugTestRoot(newSearchCommand(func() searchServices { return services }, func([]string) (int, error) { return -1, nil }))
+			root := debugTestRoot(newSearchCommand(func() searchServices { return services }, func(util.ChooserRequest) (int, error) { return -1, nil }))
 			var stderr bytes.Buffer
 			root.SetErr(&stderr)
 			var stdout io.Writer = io.Discard

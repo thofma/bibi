@@ -1,6 +1,7 @@
 package zb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -54,6 +55,10 @@ func getZBResponse(doi string) (string, error) {
 }
 
 func getZBAPI(path string, query url.Values) (string, error) {
+	return getZBAPIContext(context.Background(), path, query)
+}
+
+func getZBAPIContext(ctx context.Context, path string, query url.Values) (string, error) {
 	endpoint, err := url.Parse(zbAPIBaseURL)
 	if err != nil {
 		return "", fmt.Errorf("parse zbMath API URL: %w", err)
@@ -61,11 +66,15 @@ func getZBAPI(path string, query url.Values) (string, error) {
 
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	endpoint.RawQuery = query.Encode()
-	return getZBURL(endpoint.String(), "application/json")
+	return getZBURLContext(ctx, endpoint.String(), "application/json")
 }
 
 func getZBURL(endpoint string, accept string) (string, error) {
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	return getZBURLContext(context.Background(), endpoint, accept)
+}
+
+func getZBURLContext(ctx context.Context, endpoint string, accept string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", fmt.Errorf("create zbMath request: %w", err)
 	}

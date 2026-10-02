@@ -9,6 +9,7 @@ import (
 	"github.com/nickng/bibtex"
 	"github.com/spf13/cobra"
 	"github.com/thofma/bibi/lib/phd"
+	"github.com/thofma/bibi/util"
 )
 
 func usePhDQuery(t *testing.T, query func(string) ([]phd.MGPEntry, error)) {
@@ -32,7 +33,7 @@ func usePhDGetBibTeX(t *testing.T, getBibTeX func(phd.MGPEntry) (*bibtex.BibEntr
 func usePhDChoose(t *testing.T, choose func([]string) (int, error)) {
 	t.Helper()
 	originalChoose := phdChoose
-	phdChoose = choose
+	phdChoose = func(request util.ChooserRequest) (int, error) { return choose(choiceLabels(request)) }
 	t.Cleanup(func() {
 		phdChoose = originalChoose
 	})

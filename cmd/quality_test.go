@@ -11,6 +11,7 @@ import (
 	"github.com/thofma/bibi/lib/mr"
 	"github.com/thofma/bibi/lib/phd"
 	"github.com/thofma/bibi/lib/zb"
+	"github.com/thofma/bibi/util"
 )
 
 func TestSearchJournalPreferencesAreProviderIndependent(t *testing.T) {
@@ -33,7 +34,7 @@ func TestSearchJournalPreferencesAreProviderIndependent(t *testing.T) {
 						return []bibliography.Record{record}, nil
 					})},
 				}
-				root := debugTestRoot(newSearchCommand(func() searchServices { return services }, func([]string) (int, error) {
+				root := debugTestRoot(newSearchCommand(func() searchServices { return services }, func(util.ChooserRequest) (int, error) {
 					t.Fatal("journal preference opened a picker")
 					return 0, nil
 				}))

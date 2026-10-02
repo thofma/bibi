@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/nickng/bibtex"
 	"github.com/thofma/bibi/lib/bibliography"
+	"github.com/thofma/bibi/util"
 )
 
 type fakeDiscovery func(string) ([]bibliography.Work, error)
@@ -20,6 +22,107 @@ type fakeProvider func(bibliography.Work) ([]bibliography.Record, error)
 
 func (provider fakeProvider) BibTeX(work bibliography.Work) ([]bibliography.Record, error) {
 	return provider(work)
+}
+
+type fakePagedDiscovery func(context.Context, string, string) (bibliography.SearchPage, error)
+
+func (fakePagedDiscovery) Search(string) ([]bibliography.Work, error) {
+	panic("paged discovery used the unpaged interface")
+}
+
+func (search fakePagedDiscovery) SearchPage(ctx context.Context, query, token string) (bibliography.SearchPage, error) {
+	return search(ctx, query, token)
+}
+
+func TestSearchLaterPageSelectionAndRetryRetrieveOnlySelectedWork(t *testing.T) {
+	works := []bibliography.Work{{Title: "First"}, {Title: "Second"}, {Title: "Third"},
+		{Title: "Fourth", Authors: []string{"One, Alice", "Two, Bob"}, Venue: "Journal", Notes: "Revised version"}}
+	loads, exports, picks := 0, 0, 0
+	services := searchServices{
+		discovery: map[string]bibliography.Discoverer{"zb": fakePagedDiscovery(func(ctx context.Context, query, token string) (bibliography.SearchPage, error) {
+			if query != "free query" || ctx == nil {
+				t.Errorf("query=%q context=%v", query, ctx)
+			}
+			loads++
+			if exports != 0 {
+				t.Fatal("BibTeX retrieved while browsing")
+			}
+			if token == "" {
+				return bibliography.SearchPage{Works: works[:2], NextToken: "next", Total: 4}, nil
+			}
+			if token != "next" {
+				t.Fatalf("wrong token %q", token)
+			}
+			if loads == 2 {
+				return bibliography.SearchPage{}, errors.New("temporary failure")
+			}
+			return bibliography.SearchPage{Works: works[2:], Total: 4}, nil
+		})},
+		bib: map[string]bibliography.Provider{"mr": fakeProvider(func(work bibliography.Work) ([]bibliography.Record, error) {
+			exports++
+			if !reflect.DeepEqual(work, works[3]) {
+				t.Fatalf("provider received wrong work: %+v", work)
+			}
+			record := searchRecord("MRLater", "")
+			record.Work = work
+			return []bibliography.Record{record}, nil
+		})},
+	}
+	command := newSearchCommand(func() searchServices { return services }, func(request util.ChooserRequest) (int, error) {
+		picks++
+		if picks != 1 || request.LoadPage == nil || request.NextToken != "next" {
+			t.Fatal("missing continuation or unexpected second selector")
+		}
+		if _, err := request.LoadPage(context.Background(), request.NextToken); err == nil {
+			t.Fatal("page failure was swallowed")
+		}
+		page, err := request.LoadPage(context.Background(), request.NextToken)
+		if err != nil || len(page.Choices) != 2 || !strings.Contains(page.Choices[1].Details, "Two, Bob") || !strings.Contains(page.Choices[1].Details, "Revised version") {
+			t.Fatalf("missing later-page details: %+v, error=%v", page, err)
+		}
+		return 3, nil
+	})
+	var output, stderr bytes.Buffer
+	command.SetOut(&output)
+	command.SetErr(&stderr)
+	command.SetArgs([]string{"free query", "--bib", "mr"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	assertMRBibTeX(t, output.String(), "MRLater")
+	if loads != 3 || exports != 1 || picks != 1 || stderr.Len() != 0 {
+		t.Fatalf("loads=%d exports=%d picks=%d stderr=%q", loads, exports, picks, stderr.String())
+	}
+}
+
+func TestSearchCancellationAfterLoadingDoesNotExport(t *testing.T) {
+	services := searchServices{
+		discovery: map[string]bibliography.Discoverer{"zb": fakePagedDiscovery(func(ctx context.Context, _, token string) (bibliography.SearchPage, error) {
+			if token != "" {
+				return bibliography.SearchPage{}, ctx.Err()
+			}
+			return bibliography.SearchPage{Works: []bibliography.Work{{Title: "First"}}, NextToken: "next"}, nil
+		})},
+		bib: map[string]bibliography.Provider{"zb": fakeProvider(func(bibliography.Work) ([]bibliography.Record, error) {
+			t.Fatal("exported after cancellation")
+			return nil, nil
+		})},
+	}
+	command := newSearchCommand(func() searchServices { return services }, func(request util.ChooserRequest) (int, error) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := request.LoadPage(ctx, request.NextToken); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled page error=%v", err)
+		}
+		return -1, nil
+	})
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetErr(io.Discard)
+	command.SetArgs([]string{"query"})
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "cancelled") || output.Len() != 0 {
+		t.Fatalf("error=%v output=%q", err, output.String())
+	}
 }
 
 func searchRecord(key, doi string) bibliography.Record {
@@ -53,7 +156,7 @@ func TestSearchDiscoveryAndBibTeXAreIndependent(t *testing.T) {
 						return []bibliography.Record{searchRecord(provider+"Entry", "10.1000/example")}, nil
 					})},
 				}
-				command := newSearchCommand(func() searchServices { return services }, func([]string) (int, error) {
+				command := newSearchCommand(func() searchServices { return services }, func(util.ChooserRequest) (int, error) {
 					t.Fatal("exact single match opened a picker")
 					return 0, nil
 				})
@@ -97,7 +200,8 @@ func TestSearchSelectsBeforeRetrievingBibTeX(t *testing.T) {
 			return []bibliography.Record{record}, nil
 		})},
 	}
-	command := newSearchCommand(func() searchServices { return services }, func(labels []string) (int, error) {
+	command := newSearchCommand(func() searchServices { return services }, func(request util.ChooserRequest) (int, error) {
+		labels := choiceLabels(request)
 		pickerCalls++
 		if pickerCalls > 1 {
 			t.Fatal("single provider candidate opened a second picker")
@@ -142,7 +246,7 @@ func TestSearchSingleCandidateAndDOIValidation(t *testing.T) {
 					return []bibliography.Record{searchRecord("MR1", test.candidate)}, nil
 				})},
 			}
-			command := newSearchCommand(func() searchServices { return services }, func(labels []string) (int, error) {
+			command := newSearchCommand(func() searchServices { return services }, func(util.ChooserRequest) (int, error) {
 				t.Fatal("single candidate opened a picker")
 				return 0, nil
 			})
@@ -187,7 +291,8 @@ func TestSearchChoosesAmongMultipleBibTeXCandidates(t *testing.T) {
 				})},
 			}
 			pickerCalls := 0
-			command := newSearchCommand(func() searchServices { return services }, func(labels []string) (int, error) {
+			command := newSearchCommand(func() searchServices { return services }, func(request util.ChooserRequest) (int, error) {
+				labels := choiceLabels(request)
 				pickerCalls++
 				if len(labels) != 2 || !strings.Contains(labels[1], "[MR2]") {
 					t.Errorf("choices = %v", labels)
@@ -256,7 +361,7 @@ func TestSearchDoesNotRetrieveAfterEmptyOrCancelledDiscovery(t *testing.T) {
 					return nil, nil
 				})},
 			}
-			command := newSearchCommand(func() searchServices { return services }, func([]string) (int, error) { return -1, nil })
+			command := newSearchCommand(func() searchServices { return services }, func(util.ChooserRequest) (int, error) { return -1, nil })
 			var output bytes.Buffer
 			command.SetOut(&output)
 			command.SetErr(io.Discard)
@@ -284,4 +389,12 @@ func TestSearchRejectsInvalidOptionsBeforeNetwork(t *testing.T) {
 			t.Errorf("arguments %v succeeded", args)
 		}
 	}
+}
+
+func choiceLabels(request util.ChooserRequest) []string {
+	labels := make([]string, len(request.Choices))
+	for i, choice := range request.Choices {
+		labels[i] = choice.Label
+	}
+	return labels
 }

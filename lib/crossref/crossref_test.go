@@ -2,6 +2,9 @@ package crossref
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +16,46 @@ import (
 	"github.com/thofma/bibi/internal/diagnostics"
 	"github.com/thofma/bibi/lib/bibliography"
 )
+
+func TestSearchCursorPagesAndSourceDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("query.bibliographic") != "free search" || q.Get("rows") != "10" || q.Has("offset") {
+			t.Errorf("request = %s", r.URL)
+		}
+		var items []string
+		switch q.Get("cursor") {
+		case "*":
+			for id := 1; id <= 10; id++ {
+				items = append(items, fmt.Sprintf(`{"DOI":"10.1000/%d","title":["Work %d"]}`, id, id))
+			}
+		case "opaque+/= token":
+			items = append(items, `{"DOI":"10.1000/11","title":["Later work"],"container-title":["Full Journal Name"],"type":"book","edition-number":"2","subtype":"translation"}`)
+		default:
+			t.Errorf("unexpected cursor %q", q.Get("cursor"))
+		}
+		fmt.Fprintf(w, `{"message":{"items":[%s],"total-results":11,"next-cursor":"opaque+/= token"}}`, strings.Join(items, ","))
+	}))
+	defer server.Close()
+	backend := &Backend{BaseURL: server.URL, HTTPClient: server.Client()}
+	first, err := backend.SearchPage(context.Background(), "free search", "")
+	if err != nil || len(first.Works) != 10 || first.NextToken != "opaque+/= token" || first.Total != 11 {
+		t.Fatalf("first = %+v, error = %v", first, err)
+	}
+	last, err := backend.SearchPage(context.Background(), "free search", first.NextToken)
+	if err != nil || len(last.Works) != 1 || last.NextToken != "" {
+		t.Fatalf("last = %+v, error = %v", last, err)
+	}
+	work := last.Works[0]
+	if work.Venue != "Full Journal Name" || work.Type != "book" || work.Edition != "2" || work.Notes != "Subtype: translation" {
+		t.Fatalf("source metadata = %+v", work)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := backend.SearchPage(ctx, "free search", first.NextToken); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled request error = %v", err)
+	}
+}
 
 func TestSearchMapsFreeTextToWork(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
