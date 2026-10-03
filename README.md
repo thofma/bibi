@@ -261,10 +261,13 @@ bibi abbr "ann. math."
 
 `abbr` finds journal abbreviations from the
 [AMS MR Serials Abbreviations List](https://mathscinet.ams.org/msnhtml/annser.csv)
-and works offline.
+and works offline. The CSV snapshot downloaded on 2026-10-03 is bundled into
+the executable; no separate data file or first-run download is needed. See the
+[bundled data notes](internal/journals/README.md) for the source and refresh steps.
 
 Words can appear in any order, either as separate arguments or one quoted query.
-Every word must match the beginning of a word in the full title or abbreviation.
+Every word must match the beginning of a word in the full title, translated title,
+or abbreviation.
 For example, `theor numbe jour` also finds Journal of Number Theory. Matching
 ignores case, accents, and punctuation.
 

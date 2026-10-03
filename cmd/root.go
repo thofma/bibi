@@ -11,7 +11,7 @@ var rootCmd = &cobra.Command{
 	Short: "Retrieve BibTeX for mathematical literature",
 	Long: `bibi retrieves BibTeX for DOIs and arXiv identifiers directly, and searches
 mathematical literature using MR Lookup, zbMATH Open, Crossref, and the Mathematics
-Genealogy Project.`,
+Genealogy Project. It also finds AMS journal abbreviations offline.`,
 	SilenceUsage: true,
 }
 
