@@ -14,8 +14,8 @@ import (
 func newAbbrCommand(choose func(util.ChooserRequest) (int, error)) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "abbr <journal words...>",
-		Short: "Find an AMS journal abbreviation offline",
-		Long: `Search the bundled AMS MR Serials Abbreviations List without network access.
+		Short: "Find a journal abbreviation offline",
+		Long: `Search the bundled journal abbreviation catalog without network access.
 Words can appear in any order and match prefixes in a journal's full title,
 translated title or abbreviation. Matching ignores case, accents and punctuation.
 A unique result prints immediately; multiple results open an interactive picker.
@@ -39,9 +39,9 @@ Examples:
 		if err != nil {
 			return err
 		}
-		diagnostics.Printf("AMS journal query=%q returned %d results", query, len(matches))
+		diagnostics.Printf("journal query=%q returned %d results", query, len(matches))
 		if len(matches) == 0 {
-			return fmt.Errorf("no AMS journal abbreviations found for %q", query)
+			return fmt.Errorf("no journal abbreviations found for %q", query)
 		}
 		selected := 0
 		if len(matches) > 1 {
@@ -68,7 +68,7 @@ Examples:
 		if err := cmd.Context().Err(); err != nil {
 			return err
 		}
-		diagnostics.Printf("writing AMS abbreviation %q", matches[selected].Abbreviation)
+		diagnostics.Printf("writing abbreviation %q", matches[selected].Abbreviation)
 		if _, err := fmt.Fprintln(cmd.OutOrStdout(), matches[selected].Abbreviation); err != nil {
 			return fmt.Errorf("write journal abbreviation: %w", err)
 		}

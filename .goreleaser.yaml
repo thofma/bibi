@@ -1,53 +1,72 @@
-# This is an example .goreleaser.yml file with some sensible defaults.
-# Make sure to check the documentation at https://goreleaser.com
-
-# The lines below are called `modelines`. See `:help modeline`
-# Feel free to remove those if you don't want/need to use them.
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
-# vim: set ts=2 sw=2 tw=0 fo=cnqoj
-
 version: 2
+project_name: bibi
 
 before:
   hooks:
-    # You may remove this if you don't use go modules.
-    - go mod tidy
-    # you may remove this if you don't need go generate
-    - go generate ./...
+    - go run ./tools/release completions
 
 builds:
-  - env:
+  - id: bibi
+    main: .
+    binary: bibi
+    env:
       - CGO_ENABLED=0
-    goos:
-      - linux
-      - windows
-      - darwin
+    flags:
+      - -trimpath
+      - -mod=readonly
+    ldflags:
+      - >-
+        -s -w
+        -X github.com/thofma/bibi/internal/buildinfo.Version={{ .Version }}
+        -X github.com/thofma/bibi/internal/buildinfo.Commit={{ .Commit }}
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64, "386"]
+    ignore:
+      - goos: darwin
+        goarch: "386"
 
 archives:
-  - formats: [tar.gz]
-    # this name template makes the OS and Arch compatible with the results of `uname`.
+  - id: bibi
+    formats: [tar.gz]
     name_template: >-
-      {{ .ProjectName }}_
+      {{ .ProjectName }}_{{ .Version }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
-      {{- if .Arm }}v{{ .Arm }}{{ end }}
-    # use zip for windows archives
     format_overrides:
       - goos: windows
         formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+      - src: internal/journals/README.md
+        dst: data/journals.md
+      - src: .release/completions/*
+        dst: completions
+        strip_parent: true
+
+checksum:
+  algorithm: sha256
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+
+source:
+  enabled: true
+  format: tar.gz
+  name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+  prefix_template: "{{ .ProjectName }}_{{ .Version }}/"
 
 changelog:
   sort: asc
   filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
+    exclude: ["^docs:", "^test:"]
 
 release:
-  footer: >-
-
-    ---
-
-    Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
+  draft: true
+  replace_existing_draft: true
+  prerelease: auto
+  footer: |
+    Install the latest stable version with Homebrew: `brew install thofma/tap/bibi`.
+    Install the archive for your platform or use `go install github.com/thofma/bibi@{{ .Tag }}`.
+    Run `bibi --version` to identify your installation.

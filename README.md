@@ -17,7 +17,7 @@
   [zbMATH Open](https://zbmath.org/), the
   [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/),
   MathSciNet (through MR Lookup), or [Crossref](https://www.crossref.org/).
-- Finding AMS journal abbreviations offline.
+- Finding journal abbreviations offline.
 
 ## Table of Contents
 
@@ -38,7 +38,16 @@
 
 ## Install
 
-Install the latest tagged version with Go:
+Install with Homebrew on macOS or Linux:
+
+```sh
+brew install thofma/tap/bibi
+```
+
+Homebrew builds `bibi` from source, manages the Go build dependency, and installs
+shell completions. The tap is updated automatically after each stable release.
+
+Alternatively, install the latest tagged version with Go:
 
 ```sh
 go install github.com/thofma/bibi@latest
@@ -277,11 +286,10 @@ bibi abbr "reine angewandte"
 bibi abbr "ann. math."
 ```
 
-`abbr` finds journal abbreviations from the
-[AMS MR Serials Abbreviations List](https://mathscinet.ams.org/msnhtml/annser.csv)
-and works offline. The CSV snapshot downloaded on 2026-10-03 is bundled into
-the executable; no separate data file or first-run download is needed. See the
-[bundled data notes](internal/journals/README.md) for the source and refresh steps.
+`abbr` searches a bundled journal abbreviation catalog and works offline. The
+catalog is stored as compressed JSON and embedded into the executable; no separate
+data file or first-run download is needed. See the
+[bundled data notes](internal/journals/README.md) for the format and refresh steps.
 
 Words can appear in any order, either as separate arguments or one quoted query.
 Every word must match the beginning of a word in the full title, translated title,

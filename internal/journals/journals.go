@@ -1,9 +1,11 @@
-// Package journals searches the bundled AMS MR Serials Abbreviations List.
+// Package journals searches the bundled journal abbreviation catalog.
 package journals
 
 import (
+	"bytes"
+	"compress/gzip"
 	_ "embed"
-	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -13,10 +15,10 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-//go:embed annser.csv
-var serialsCSV string
+//go:embed catalog.json.gz
+var serialsData []byte
 
-// Journal retains the AMS spelling for display and abbreviation output.
+// Journal retains the catalog spelling for display and abbreviation output.
 type Journal struct {
 	Abbreviation    string
 	Title           string
@@ -32,7 +34,7 @@ type entry struct {
 type catalog []entry
 
 var loadCatalog = sync.OnceValues(func() (catalog, error) {
-	return parse(strings.NewReader(serialsCSV))
+	return parse(bytes.NewReader(serialsData))
 })
 
 // Search matches every query word against a word prefix in a journal's title,
@@ -44,57 +46,44 @@ func Search(query string) ([]Journal, error) {
 	}
 	entries, err := loadCatalog()
 	if err != nil {
-		return nil, fmt.Errorf("read bundled AMS journal list: %w", err)
+		return nil, fmt.Errorf("read bundled journal catalog: %w", err)
 	}
 	return entries.search(words), nil
 }
 
 func parse(input io.Reader) (catalog, error) {
-	reader := csv.NewReader(input)
-	// The AMS source contains an unescaped quote and comma in a publisher field.
-	// Keep the original snapshot and tolerate that field while reading the fixed
-	// title columns and the ISSN/final flags from the end of each record.
-	reader.LazyQuotes = true
-	reader.FieldsPerRecord = -1
-	header, err := reader.Read()
+	compressed, err := gzip.NewReader(input)
 	if err != nil {
-		return nil, fmt.Errorf("read CSV header: %w", err)
+		return nil, fmt.Errorf("open compressed catalog: %w", err)
 	}
-	wantHeader := []string{"Abbrev", "Full Title", "Trnsl. Title", "Publ.", "ISSN", "New", "Cover-to-cover", "Book Ser"}
-	if len(header) != len(wantHeader) {
-		return nil, fmt.Errorf("unexpected AMS CSV header")
+	defer compressed.Close()
+	data, err := io.ReadAll(compressed)
+	if err != nil {
+		return nil, fmt.Errorf("read compressed catalog: %w", err)
 	}
-	for i, name := range wantHeader {
-		if strings.TrimSpace(strings.TrimPrefix(header[i], "\ufeff")) != name {
-			return nil, fmt.Errorf("unexpected AMS CSV column %d: %q", i+1, header[i])
-		}
+	var records [][]string
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, fmt.Errorf("read catalog JSON: %w", err)
 	}
-	var entries catalog
-	for row := 2; ; row++ {
-		record, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("read CSV row %d: %w", row, err)
-		}
-		if len(record) < len(wantHeader) {
-			return nil, fmt.Errorf("AMS CSV row %d has %d columns, want at least %d", row, len(record), len(wantHeader))
+	if len(records) == 0 {
+		return nil, fmt.Errorf("catalog has no journal entries")
+	}
+	entries := make(catalog, 0, len(records))
+	for i, record := range records {
+		if len(record) != 4 {
+			return nil, fmt.Errorf("catalog record %d has %d fields, want 4", i+1, len(record))
 		}
 		journal := Journal{
 			Abbreviation:    strings.TrimSpace(record[0]),
 			Title:           strings.TrimSpace(record[1]),
 			TranslatedTitle: strings.TrimSpace(record[2]),
-			ISSN:            strings.TrimSpace(record[len(record)-4]),
+			ISSN:            strings.TrimSpace(record[3]),
 		}
 		if journal.Abbreviation == "" {
-			return nil, fmt.Errorf("AMS CSV row %d has no abbreviation", row)
+			return nil, fmt.Errorf("catalog record %d has no abbreviation", i+1)
 		}
 		entries = append(entries, entry{journal: journal,
 			words: searchWords(journal.Title + " " + journal.TranslatedTitle + " " + journal.Abbreviation)})
-	}
-	if len(entries) == 0 {
-		return nil, fmt.Errorf("AMS CSV has no journal entries")
 	}
 	return entries, nil
 }

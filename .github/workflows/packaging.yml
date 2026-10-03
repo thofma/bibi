@@ -1,0 +1,53 @@
+name: Validate packages
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Require a project license
+        run: test -s LICENSE || { echo 'Choose a project license before packaging releases'; exit 1; }
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.18.2
+          args: check
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.18.2
+          args: release --snapshot --clean
+      - name: Verify packages and generate the Homebrew formula
+        run: go run ./tools/release formula dist "$(git rev-parse HEAD)"
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: snapshot-packages
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*_checksums.txt
+            dist/bibi.rb
+          if-no-files-found: error
+
+  smoke:
+    needs: build
+    uses: ./.github/workflows/smoke.yml
+    with:
+      artifact: snapshot-packages
+
+  homebrew:
+    needs: build
+    uses: ./.github/workflows/homebrew-test.yml
+    with:
+      artifact: snapshot-packages

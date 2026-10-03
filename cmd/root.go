@@ -6,6 +6,7 @@ import (
 	"os/signal"
 
 	"github.com/spf13/cobra"
+	"github.com/thofma/bibi/internal/buildinfo"
 )
 
 var rootCmd = &cobra.Command{
@@ -13,8 +14,9 @@ var rootCmd = &cobra.Command{
 	Short: "Retrieve BibTeX for mathematical literature",
 	Long: `bibi retrieves BibTeX for DOIs and arXiv identifiers directly, and searches
 mathematical literature using MR Lookup, zbMATH Open, Crossref, and the Mathematics
-Genealogy Project. It also finds AMS journal abbreviations offline.`,
+Genealogy Project. It also finds journal abbreviations offline.`,
 	SilenceUsage: true,
+	Version:      buildinfo.String(),
 }
 
 func Execute() {
@@ -34,6 +36,7 @@ func commandExitCode(command *cobra.Command) int {
 }
 
 func init() {
+	rootCmd.SetVersionTemplate("bibi {{.Version}}\n")
 	addDebugFlag(rootCmd)
 	addBibTeXFlags(rootCmd)
 }

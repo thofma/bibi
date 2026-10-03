@@ -1,7 +1,11 @@
 package journals
 
 import (
-	"strings"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -12,6 +16,19 @@ func TestBundledSnapshot(t *testing.T) {
 	}
 	if got, want := len(entries), 2385; got != want {
 		t.Fatalf("snapshot has %d records, want %d", got, want)
+	}
+	// Freeze all four retained fields against the catalog before conversion.
+	var records [][4]string
+	for _, entry := range entries {
+		j := entry.journal
+		records = append(records, [4]string{j.Abbreviation, j.Title, j.TranslatedTitle, j.ISSN})
+	}
+	data, err := json.Marshal(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprintf("%x", sha256.Sum256(data)), "bcd6826e9f8d0053beb795a19097426fabc670505210fd7ed175f3ffaa76cd7a"; got != want {
+		t.Fatalf("snapshot fields checksum = %s, want %s", got, want)
 	}
 	for _, test := range []struct {
 		query, abbreviation, issn string
@@ -96,11 +113,9 @@ func TestSearchIncludesEveryPrefixInAnyOrder(t *testing.T) {
 	}
 }
 
-func TestParseQuotedFieldsAndTranslatedTitles(t *testing.T) {
-	input := "\ufeffAbbrev,Full Title,Trnsl. Title,Publ.,ISSN,New,Cover-to-cover,Book Ser\n" +
-		"\"Rev. Études\",\"Revue, des Études\",\"Review of Studies\",\"Publisher, City\",1234-5678,N,Y,N\n" +
-		"\"Dopov.\",\"Dopovidi\",\"\",\"Vidavn. Dim \"Akademperiodika\", Kiev.\",\"1025-6415\",\"N\",\"N\",\"N\"\n"
-	entries, err := parse(strings.NewReader(input))
+func TestParseCatalogFieldsAndTranslatedTitles(t *testing.T) {
+	input := `[["Rev. Études","Revue, des Études","Review of Studies","1234-5678"],["Dopov.","Dopovidi","","1025-6415"]]`
+	entries, err := parse(bytes.NewReader(compressCatalog(t, input)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,10 +131,30 @@ func TestParseQuotedFieldsAndTranslatedTitles(t *testing.T) {
 }
 
 func TestParseRejectsBrokenCatalog(t *testing.T) {
-	header := "Abbrev,Full Title,Trnsl. Title,Publ.,ISSN,New,Cover-to-cover,Book Ser\n"
-	for _, input := range []string{"", "wrong,columns\n", header, header + "J.,Journal\n", header + ",Journal,,,1234-5678,N,N,N\n"} {
-		if _, err := parse(strings.NewReader(input)); err == nil {
+	for _, input := range []string{"", `null`, `[]`, `"wrong"`, `[["J.","Journal"]]`, `[["","Journal","","1234-5678"]]`, `[["J.","Journal","","1234-5678"]] trailing`} {
+		if _, err := parse(bytes.NewReader(compressCatalog(t, input))); err == nil {
 			t.Errorf("parse(%q) succeeded, want invalid catalog", input)
 		}
 	}
+	data := compressCatalog(t, `[["J.","Journal","","1234-5678"]]`)
+	corrupt := bytes.Clone(data)
+	corrupt[len(corrupt)-8] ^= 1 // Damage the gzip checksum.
+	for _, input := range [][]byte{nil, []byte("not gzip"), data[:len(data)-1], corrupt} {
+		if _, err := parse(bytes.NewReader(input)); err == nil {
+			t.Error("damaged compressed catalog was accepted")
+		}
+	}
+}
+
+func compressCatalog(t *testing.T, input string) []byte {
+	t.Helper()
+	var output bytes.Buffer
+	writer := gzip.NewWriter(&output)
+	if _, err := writer.Write([]byte(input)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return output.Bytes()
 }

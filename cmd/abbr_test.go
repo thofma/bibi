@@ -91,7 +91,7 @@ func TestAbbrFailuresLeaveStdoutEmpty(t *testing.T) {
 		{name: "missing query", args: nil, want: "requires at least 1"},
 		{name: "blank query", args: []string{" \t "}, want: "at least one letter or number"},
 		{name: "punctuation query", args: []string{"..."}, want: "at least one letter or number"},
-		{name: "no matches", args: []string{"journalwhichdoesnotexist"}, want: "no AMS journal abbreviations"},
+		{name: "no matches", args: []string{"journalwhichdoesnotexist"}, want: "no journal abbreviations"},
 		{name: "cancelled picker", args: []string{"number theory"}, selection: -1, wantErr: errSelectionCancelled},
 		{name: "invalid selection", args: []string{"number theory"}, selection: 100000, want: "invalid journal selection"},
 		{name: "picker failure", args: []string{"number theory"}, chooseErr: chooserError, wantErr: chooserError},
@@ -151,7 +151,7 @@ func TestAbbrDebugKeepsAbbreviationOnStdout(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if stdout.String() != "Invent. Math.\n" || !strings.Contains(stderr.String(), "AMS journal query=") {
+	if stdout.String() != "Invent. Math.\n" || !strings.Contains(stderr.String(), "journal query=") {
 		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }

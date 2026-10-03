@@ -1,0 +1,51 @@
+name: Validate source
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Check dependency files
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+      - name: Test Homebrew publication safeguards
+        if: runner.os == 'Linux'
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Test with race detector
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+      - name: Build
+        run: go build ./...
+      - name: Test Go installation in a temporary directory
+        run: go run ./tools/release install
