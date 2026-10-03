@@ -153,9 +153,13 @@ bibi get 2301.12345 --bib zb
 ```
 
 Explicit choices are `zb`, `mr`, and `crossref`. The selected provider supplies the
-BibTeX, with no automatic fallback. You may be asked to confirm a matching record.
+BibTeX, with no automatic fallback. Identifier-verified matches are selected
+automatically when there is one candidate and no edition or publication change.
+Unverified matches always require confirmation, even when there is one candidate.
 For arXiv inputs, a provider may return the published work; `--bib auto` returns
-the preprint unless `--published` is set.
+the preprint unless `--published` is set. A change from a selected preprint to a
+published provider record requires confirmation; `--published` explicitly requests
+the published work.
 
 `get` also supports the shared `--journal` and `--debug` options.
 
@@ -188,8 +192,26 @@ Press `Tab` to scroll the detail pane with the arrow keys or `PgUp`/`PgDn`, then
 `Tab` to return to the results. In small terminals, `Tab` switches between
 results and details. Set `NO_COLOR=1` to disable colours.
 
-After selecting a work, choose a matching BibTeX record if prompted. Check that
-it is the intended work or edition; press `q` or `Ctrl-C` to cancel.
+After selecting a work, bibi checks the provider candidates against its identifiers.
+A shared normalized DOI or provider identifier verifies identity; conflicting
+DOIs reject a candidate. When verified candidates exist, they take precedence over
+unverified candidates. Similar titles, authors, or years do not verify identity.
+
+A single verified candidate is selected automatically unless its supplied edition
+differs or it changes between preprint and published work. Multiple candidates and
+all unverified matches require confirmation, including a single unverified match.
+The picker labels the match status and shows its reason, metadata differences, and
+the selected work and provider candidate in separate detail sections. Unavailable
+fields are marked explicitly. Edition and translation notes are shown when supplied
+by the source. Year or title differences are informational and do not by themselves
+reject a candidate. Press `Enter` to use the highlighted entry, or `q` or `Ctrl-C`
+to cancel without exporting or saving it.
+
+Choices and confirmations read keyboard input from the controlling terminal,
+leaving piped identifiers untouched. If no interactive terminal is available, a
+required confirmation fails with an actionable error. Batch `get` reports that
+input's failure and continues with the remaining inputs; cancelling a picker stops
+the batch. Verified single matches still work without a terminal.
 
 The requested BibTeX provider is always used, with no automatic fallback.
 `--bib mr` returns MR Lookup's BibTeX, and `--bib crossref` requires a DOI.
@@ -207,6 +229,8 @@ bibi add "local fields" references.bib --discovery crossref --bib mr --dry-run
 The two positional arguments are the query and the destination file. Quote
 multiword queries. `add` uses the same discovery, result picker, BibTeX providers,
 and journal preferences as `search`; both discovery and BibTeX default to zbMATH.
+The same verification and confirmation rules apply before an entry is saved,
+including with `--dry-run`.
 
 The provider's citation key is used unless you supply `--key`. Entries are
 appended, or a missing file is created if its parent directory exists. Entries

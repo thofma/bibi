@@ -15,6 +15,10 @@ import (
 )
 
 func addTestServices(record bibliography.Record, discovery, provider string) searchServices {
+	if record.DOI == "" {
+		// Model a native provider record with identifier-verified identity.
+		record.Work.IDs = map[string]string{provider: record.Entry.CiteName}
+	}
 	return searchServices{
 		discovery: map[string]bibliography.Discoverer{discovery: fakeDiscovery(func(string) ([]bibliography.Work, error) { return []bibliography.Work{record.Work}, nil })},
 		bib:       map[string]bibliography.Provider{provider: fakeProvider(func(bibliography.Work) ([]bibliography.Record, error) { return []bibliography.Record{record}, nil })},
@@ -165,7 +169,7 @@ func TestAddUsesExportedIdentifiersAndLatestFile(t *testing.T) {
 
 func TestAddLaterPageHasOneDiscoverySelection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "references.bib")
-	record := searchRecord("Later", "")
+	record := searchRecord("Later", "10.1000/later")
 	services := addTestServices(record, "zb", "mr")
 	services.discovery["zb"] = fakePagedDiscovery(func(ctx context.Context, query, token string) (bibliography.SearchPage, error) {
 		if token == "" {

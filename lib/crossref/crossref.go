@@ -221,6 +221,9 @@ func (backend *Backend) getContext(ctx context.Context, path string, values url.
 
 func (item item) work() bibliography.Work {
 	work := bibliography.Work{DOI: item.DOI, Type: item.Type, Edition: item.Edition}
+	if item.Type == "posted-content" && item.Subtype == "preprint" {
+		work.Type = "preprint"
+	}
 	if item.Subtype != "" {
 		work.Notes = "Subtype: " + item.Subtype
 	}

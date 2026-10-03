@@ -36,7 +36,7 @@ func (search fakePagedDiscovery) SearchPage(ctx context.Context, query, token st
 
 func TestSearchLaterPageSelectionAndRetryRetrieveOnlySelectedWork(t *testing.T) {
 	works := []bibliography.Work{{Title: "First"}, {Title: "Second"}, {Title: "Third"},
-		{Title: "Fourth", Authors: []string{"One, Alice", "Two, Bob"}, Venue: "Journal", Notes: "Revised version"}}
+		{Title: "Fourth", Authors: []string{"One, Alice", "Two, Bob"}, Venue: "Journal", Notes: "Revised version", DOI: "10.1000/fourth"}}
 	loads, exports, picks := 0, 0, 0
 	services := searchServices{
 		discovery: map[string]bibliography.Discoverer{"zb": fakePagedDiscovery(func(ctx context.Context, query, token string) (bibliography.SearchPage, error) {
@@ -203,8 +203,11 @@ func TestSearchSelectsBeforeRetrievingBibTeX(t *testing.T) {
 	command := newSearchCommand(func() searchServices { return services }, func(request util.ChooserRequest) (int, error) {
 		labels := choiceLabels(request)
 		pickerCalls++
-		if pickerCalls > 1 {
-			t.Fatal("single provider candidate opened a second picker")
+		if pickerCalls == 2 {
+			if len(labels) != 1 || !strings.Contains(request.Choices[0].Details, "Identity unverified") {
+				t.Fatalf("missing provider confirmation: %+v", request)
+			}
+			return 0, nil
 		}
 		if len(labels) != 2 || !strings.Contains(labels[1], "Second") {
 			t.Errorf("choices = %v", labels)
@@ -219,7 +222,7 @@ func TestSearchSelectsBeforeRetrievingBibTeX(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertMRBibTeX(t, output.String(), "MR1")
-	if pickerCalls != 1 || stderr.Len() != 0 {
+	if pickerCalls != 2 || !strings.Contains(stderr.String(), "Confirm mr BibTeX") {
 		t.Errorf("picker calls = %d, stderr = %q", pickerCalls, stderr.String())
 	}
 }
@@ -230,12 +233,13 @@ func TestSearchSingleCandidateAndDOIValidation(t *testing.T) {
 		discovery string
 		candidate string
 		wantError bool
+		confirm   bool
 	}{
-		{"discovery missing DOI", "", "10.1000/example", false},
-		{"candidate missing DOI", "10.1000/example", "", false},
-		{"both missing DOI", "", "", false},
-		{"DOI conflict", "10.1000/example", "10.1000/wrong", true},
-		{"normalized DOI", "10.1000/example", "https://doi.org/10.1000/EXAMPLE", false},
+		{"discovery missing DOI", "", "10.1000/example", false, true},
+		{"candidate missing DOI", "10.1000/example", "", false, true},
+		{"both missing DOI", "", "", false, true},
+		{"DOI conflict", "10.1000/example", "10.1000/wrong", true, false},
+		{"normalized DOI", "10.1000/example", "https://doi.org/10.1000/EXAMPLE", false, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			services := searchServices{
@@ -246,8 +250,12 @@ func TestSearchSingleCandidateAndDOIValidation(t *testing.T) {
 					return []bibliography.Record{searchRecord("MR1", test.candidate)}, nil
 				})},
 			}
-			command := newSearchCommand(func() searchServices { return services }, func(util.ChooserRequest) (int, error) {
-				t.Fatal("single candidate opened a picker")
+			picks := 0
+			command := newSearchCommand(func() searchServices { return services }, func(request util.ChooserRequest) (int, error) {
+				picks++
+				if !test.confirm || len(request.Choices) != 1 || !strings.Contains(request.Choices[0].Details, "Match status: Identity unverified") {
+					t.Fatalf("unexpected confirmation: %+v", request)
+				}
 				return 0, nil
 			})
 			var output, stderr bytes.Buffer
@@ -255,6 +263,9 @@ func TestSearchSingleCandidateAndDOIValidation(t *testing.T) {
 			command.SetErr(&stderr)
 			command.SetArgs([]string{"query", "--bib", "mr"})
 			err := command.Execute()
+			if (picks == 1) != test.confirm {
+				t.Fatalf("picker calls=%d, want confirmation=%t", picks, test.confirm)
+			}
 			if (err != nil) != test.wantError {
 				t.Errorf("error = %v, want error = %v", err, test.wantError)
 			}
@@ -263,8 +274,8 @@ func TestSearchSingleCandidateAndDOIValidation(t *testing.T) {
 			}
 			if !test.wantError {
 				assertMRBibTeX(t, output.String(), "MR1")
-				if stderr.Len() != 0 {
-					t.Errorf("single candidate prompted for confirmation: %q", stderr.String())
+				if !test.confirm && stderr.Len() != 0 {
+					t.Errorf("verified candidate prompted for confirmation: %q", stderr.String())
 				}
 			}
 		})

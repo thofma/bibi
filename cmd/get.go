@@ -73,6 +73,11 @@ entry. Explicit arXiv versions are preserved; unversioned IDs use the latest.
 Use --published with an arXiv input to retrieve the article identified by its
 supplied publication DOI. An explicit --bib provider supplies its own BibTeX,
 with no fallback. Use search for free-text author/title queries.
+Unverified provider matches require confirmation, including single candidates.
+Edition changes and preprint/publication changes also require review; --published
+explicitly requests the published work. Confirmation uses the controlling terminal
+without consuming piped identifiers. If unavailable, that input fails and batch
+retrieval continues.
 
 Examples:
 

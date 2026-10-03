@@ -20,7 +20,7 @@ func getPreprint(publicationDOI string) bibliography.Record {
 	entry.AddField("year", bibtex.NewBibConst("2020"))
 	return bibliography.Record{Entry: entry, Work: bibliography.Work{
 		Title: "Preprint title", Authors: []string{"Doe, Jane"}, Year: "2020",
-		DOI: publicationDOI, IDs: map[string]string{"arxiv": "2301.12345"},
+		DOI: publicationDOI, Type: "preprint", IDs: map[string]string{"arxiv": "2301.12345"},
 	}}
 }
 
@@ -71,11 +71,17 @@ func TestGetRoutesExactIdentifiersAndExplicitProviders(t *testing.T) {
 					if work.Title != test.providerTitle || work.Year != test.providerYear || work.DOI != publication.DOI {
 						t.Fatalf("provider received wrong work: %+v", work)
 					}
-					return []bibliography.Record{searchRecord("MRChosen", work.DOI)}, nil
+					record := searchRecord("MRChosen", work.DOI)
+					record.Type = "article"
+					return []bibliography.Record{record}, nil
 				})},
 			}
-			root := debugTestRoot(newGetCommand(func() getServices { return services }, func(util.ChooserRequest) (int, error) {
-				t.Fatal("exact lookup opened a discovery or confirmation picker")
+			picks := 0
+			root := debugTestRoot(newGetCommand(func() getServices { return services }, func(request util.ChooserRequest) (int, error) {
+				picks++
+				if test.name != "arXiv to MR" || !strings.Contains(request.Choices[0].Details, "selected work is a preprint") {
+					t.Fatalf("unexpected confirmation: %+v", request)
+				}
 				return 0, nil
 			}))
 			var stdout, stderr bytes.Buffer
@@ -86,7 +92,11 @@ func TestGetRoutesExactIdentifiersAndExplicitProviders(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertMRBibTeX(t, stdout.String(), test.wantKey)
-			if arxivCalls != test.arxiv || doiCalls != test.doi || metadataCalls != test.metadata || providerCalls != test.provider || stderr.Len() != 0 {
+			wantPicks := 0
+			if test.name == "arXiv to MR" {
+				wantPicks = 1
+			}
+			if picks != wantPicks || arxivCalls != test.arxiv || doiCalls != test.doi || metadataCalls != test.metadata || providerCalls != test.provider || (wantPicks == 0 && stderr.Len() != 0) {
 				t.Fatalf("calls arxiv=%d doi=%d metadata=%d provider=%d; stderr=%q", arxivCalls, doiCalls, metadataCalls, providerCalls, stderr.String())
 			}
 		})

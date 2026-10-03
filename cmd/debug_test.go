@@ -105,7 +105,7 @@ func TestDebugFailureIsReportedAndLoggerRestored(t *testing.T) {
 	}
 }
 
-func TestDebugExplainsAutomaticUnverifiedCandidate(t *testing.T) {
+func TestDebugExplainsConfirmedUnverifiedCandidate(t *testing.T) {
 	services := searchServices{
 		discovery: map[string]bibliography.Discoverer{"zb": fakeDiscovery(func(string) ([]bibliography.Work, error) {
 			return []bibliography.Work{{Title: "A selected work"}}, nil
@@ -114,8 +114,9 @@ func TestDebugExplainsAutomaticUnverifiedCandidate(t *testing.T) {
 			return []bibliography.Record{searchRecord("MR1", "10.1000/example")}, nil
 		})},
 	}
+	picks := 0
 	root := debugTestRoot(newSearchCommand(func() searchServices { return services }, func(util.ChooserRequest) (int, error) {
-		t.Fatal("single unverified candidate opened a picker")
+		picks++
 		return 0, nil
 	}))
 	var stdout, stderr bytes.Buffer
@@ -129,14 +130,15 @@ func TestDebugExplainsAutomaticUnverifiedCandidate(t *testing.T) {
 	for _, want := range []string{
 		"compatible without identifier verification", "the discovered work has no DOI",
 		"stage=matching exact=0 compatible=1 rejected=0",
-		"stage=selection automatic: one remaining candidate",
+		"stage=confirmation started: 1 remaining candidates",
+		"stage=confirmation succeeded: key=\"MR1\"",
 	} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("trace = %q, want %q", stderr.String(), want)
 		}
 	}
-	if strings.Contains(stderr.String(), "stage=confirmation") {
-		t.Errorf("trace claims confirmation was required: %s", stderr.String())
+	if picks != 1 || strings.Contains(stderr.String(), "stage=selection automatic") {
+		t.Errorf("unverified match bypassed confirmation: picks=%d trace=%s", picks, stderr.String())
 	}
 }
 

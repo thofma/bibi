@@ -5,13 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
+	"github.com/thofma/bibi/lib/bibliography"
 )
 
 func detailUpdate(t *testing.T, m detailsModel, msg tea.Msg) (detailsModel, tea.Cmd) {
@@ -154,5 +157,79 @@ func TestDetailsResizeLongMetadataAndTerminalEscapes(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestChooserMissingTerminalReportsActionableErrorWithoutRendering(t *testing.T) {
+	var output strings.Builder
+	request := ChooserRequest{Title: "Confirm mr BibTeX", Output: &output, ChoicePage: ChoicePage{Choices: []Choice{{Label: "Identity unverified"}}}}
+	selected, err := runDetailedChooser(request, func() (io.ReadCloser, error) { return nil, errors.New("no controlling terminal") })
+	if selected != -1 || !errors.Is(err, ErrInteractiveTerminalUnavailable) || !strings.Contains(err.Error(), "rerun in an interactive terminal") || output.Len() != 0 {
+		t.Fatalf("selection=%d error=%v output=%q", selected, err, output.String())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request.Context = ctx
+	_, err = runDetailedChooser(request, func() (io.ReadCloser, error) {
+		t.Fatal("cancelled chooser opened terminal input")
+		return nil, nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled chooser error=%v", err)
+	}
+}
+
+type trackedChooserInput struct {
+	io.Reader
+	closed bool
+}
+
+func (input *trackedChooserInput) Close() error {
+	input.closed = true
+	return nil
+}
+
+func TestChooserConfirmationDoesNotReadPipedStdin(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	const identifiers = "10.1000/first\n10.1000/last\n"
+	if _, err := io.WriteString(writer, identifiers); err != nil {
+		t.Fatal(err)
+	}
+	writer.Close()
+	originalStdin := os.Stdin
+	os.Stdin = reader
+	t.Cleanup(func() { os.Stdin = originalStdin })
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	input := &trackedChooserInput{Reader: strings.NewReader("\r")}
+	selected, err := runDetailedChooser(ChooserRequest{Title: "Confirm mr BibTeX", Context: ctx, Output: io.Discard,
+		ChoicePage: ChoicePage{Choices: []Choice{{Label: "Identity unverified", Details: "Review this entry"}}}},
+		func() (io.ReadCloser, error) { return input, nil })
+	remaining, readErr := io.ReadAll(reader)
+	if err != nil || selected != 0 || !input.closed || readErr != nil || string(remaining) != identifiers {
+		t.Fatalf("selection=%d error=%v closed=%t remaining=%q read error=%v", selected, err, input.closed, remaining, readErr)
+	}
+}
+
+func TestComparisonRemainsReadableWithoutColorInCompactDetailsPane(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	selected := bibliography.Work{Title: "Selected work", Edition: "1"}
+	candidate := bibliography.Work{Title: "Provider work", Edition: "2", Notes: "Translation of the original"}
+	details := bibliography.ComparisonDetails(selected, candidate, bibliography.AssessMatch(selected, candidate, "mr"))
+	m := newDetailsModel(ChooserRequest{Title: "Confirm mr BibTeX", Confirmation: true, ChoicePage: ChoicePage{Choices: []Choice{{Label: "Identity unverified", Details: details}}}})
+	m, _ = detailUpdate(t, m, tea.WindowSizeMsg{Width: 40, Height: 12})
+	view := m.View()
+	if strings.Contains(view, "\x1b") || !strings.Contains(view, "Identity unverified") || !m.detailsFocus {
+		t.Fatalf("match status is unavailable without color: %q", view)
+	}
+	for i := 0; i < 30; i++ {
+		m, _ = detailUpdate(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
+	}
+	if !strings.Contains(m.View(), "Translation of the original") || m.selected {
+		t.Fatalf("comparison cannot be reviewed independently of selection: %s", m.View())
 	}
 }

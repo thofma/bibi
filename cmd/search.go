@@ -42,6 +42,8 @@ func newSearchCommand(services func() searchServices, choose func(util.ChooserRe
 Discovery and BibTeX retrieval are independent. Both default to zbMATH Open.
 The requested BibTeX provider is always used; bibi never substitutes another.
 MR BibTeX comes from the free MR Lookup service.
+Unverified provider matches always require confirmation. Verified single matches
+are selected automatically unless their edition or publication status changes.
 
 Examples:
 
@@ -190,16 +192,22 @@ func retrieveProviderCitation(cmd *cobra.Command, work bibliography.Work, bibNam
 			diagnostics.Printf("bib provider=%s stage=export failed: candidate %d contains metadata but no BibTeX entry", bibName, i+1)
 			return bibliography.Record{}, fmt.Errorf("%s returned a result without BibTeX", bibName)
 		}
-		isExact, isCompatible := bibliography.Match(work, record.Work, bibName)
-		if isExact {
-			diagnostics.Printf("candidate %s: exact identifier match: %s", record.Entry.CiteName, bibliography.MatchReason(work, record.Work, bibName))
+		assessment := bibliography.AssessMatch(work, record.Work, bibName)
+		switch assessment.Status {
+		case bibliography.MatchVerified:
+			diagnostics.Printf("candidate %s: exact identifier match: %s", record.Entry.CiteName, assessment.Reason)
 			exact = append(exact, record)
-		} else if isCompatible {
-			diagnostics.Printf("candidate %s: compatible without identifier verification: %s", record.Entry.CiteName, bibliography.MatchReason(work, record.Work, bibName))
+		case bibliography.MatchUnverified:
+			diagnostics.Printf("candidate %s: compatible without identifier verification: %s", record.Entry.CiteName, assessment.Reason)
 			compatible = append(compatible, record)
-		} else {
+		case bibliography.MatchConflict:
 			rejected++
-			diagnostics.Printf("candidate %s: rejected, %s", record.Entry.CiteName, bibliography.MatchReason(work, record.Work, bibName))
+			diagnostics.Printf("candidate %s: rejected, %s", record.Entry.CiteName, assessment.Reason)
+		}
+		if assessment.Status != bibliography.MatchConflict {
+			for _, reason := range bibliography.ReviewReasons(work, record.Work) {
+				diagnostics.Printf("candidate %s: review required: %s", record.Entry.CiteName, reason)
+			}
 		}
 	}
 	selected := 0
@@ -220,22 +228,21 @@ func retrieveProviderCitation(cmd *cobra.Command, work bibliography.Work, bibNam
 	if len(records) > bibliography.MaxResults {
 		records = records[:bibliography.MaxResults]
 	}
-	if len(records) > 1 {
+	needsConfirmation := len(records) > 1 || len(exact) == 0 || len(bibliography.ReviewReasons(work, records[0].Work)) > 0
+	if needsConfirmation {
 		diagnostics.Printf("bib provider=%s stage=confirmation started: %d remaining candidates", bibName, len(records))
 		diagnostics.Printf("asking to confirm a BibTeX candidate (%d choices)", len(records))
-		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Confirm %s BibTeX for: %s\n", bibName, work.Label()); err != nil {
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Confirm %s BibTeX (Enter to use, q to cancel).\n", bibName); err != nil {
 			return bibliography.Record{}, err
 		}
 		choices := make([]util.Choice, len(records))
 		for i, record := range records {
-			choices[i] = util.Choice{Label: record.Label() + " [" + record.Entry.CiteName + "]",
-				Details: record.Details() + "\n\nCitation key: " + record.Entry.CiteName}
-			if record.DOI != "" {
-				choices[i].Label += " DOI: " + record.DOI
-			}
+			assessment := bibliography.AssessMatch(work, record.Work, bibName)
+			choices[i] = util.Choice{Label: "[" + assessment.Label() + "] " + record.Label() + " [" + record.Entry.CiteName + "]",
+				Details: bibliography.ComparisonDetails(work, record.Work, assessment) + "\n\nCitation key: " + record.Entry.CiteName}
 		}
-		selected, err = selectSearchResult(util.ChooserRequest{Title: "Choose " + bibName + " BibTeX",
-			ChoicePage: util.ChoicePage{Choices: choices}, Context: cmd.Context(), Output: cmd.ErrOrStderr()}, choose)
+		selected, err = selectSearchResult(util.ChooserRequest{Title: "Confirm " + bibName + " BibTeX",
+			ChoicePage: util.ChoicePage{Choices: choices}, Context: cmd.Context(), Output: cmd.ErrOrStderr(), Confirmation: true}, choose)
 		if err != nil {
 			diagnostics.Printf("bib provider=%s stage=confirmation failed: %v; provider lookup succeeded", bibName, err)
 			return bibliography.Record{}, fmt.Errorf("choose %s BibTeX match: %w", bibName, err)
@@ -243,8 +250,12 @@ func retrieveProviderCitation(cmd *cobra.Command, work bibliography.Work, bibNam
 		if selected >= len(records) {
 			return bibliography.Record{}, fmt.Errorf("invalid selection %d", selected)
 		}
+		diagnostics.Printf("bib provider=%s stage=confirmation succeeded: key=%q", bibName, records[selected].Entry.CiteName)
 	} else {
-		diagnostics.Printf("bib provider=%s stage=selection automatic: one remaining candidate", bibName)
+		diagnostics.Printf("bib provider=%s stage=selection automatic: one verified candidate with no edition or publication change", bibName)
+	}
+	if err := cmd.Context().Err(); err != nil {
+		return bibliography.Record{}, err
 	}
 	return records[selected], nil
 }
@@ -258,9 +269,22 @@ func workChoices(page bibliography.SearchPage) util.ChoicePage {
 }
 
 func selectSearchResult(request util.ChooserRequest, choose func(util.ChooserRequest) (int, error)) (int, error) {
+	if request.Context != nil {
+		if err := request.Context.Err(); err != nil {
+			return 0, err
+		}
+	}
+	if choose == nil {
+		choose = util.RunDetailedChooser
+	}
 	selected, err := choose(request)
 	if err != nil {
 		return 0, err
+	}
+	if request.Context != nil {
+		if err := request.Context.Err(); err != nil {
+			return 0, err
+		}
 	}
 	if selected < 0 {
 		return 0, errSelectionCancelled

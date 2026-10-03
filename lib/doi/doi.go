@@ -71,12 +71,14 @@ func (backend *Backend) Metadata(ctx context.Context, query string) (bibliograph
 		return bibliography.Work{}, err
 	}
 	var item struct {
-		DOI       string `json:"DOI"`
-		Title     string `json:"title"`
-		Container string `json:"container-title"`
-		Type      string `json:"type"`
-		Author    []name `json:"author"`
-		Editor    []name `json:"editor"`
+		DOI       string          `json:"DOI"`
+		Title     string          `json:"title"`
+		Container string          `json:"container-title"`
+		Type      string          `json:"type"`
+		Edition   json.RawMessage `json:"edition"`
+		Note      string          `json:"note"`
+		Author    []name          `json:"author"`
+		Editor    []name          `json:"editor"`
 		Issued    struct {
 			Parts [][]int `json:"date-parts"`
 		} `json:"issued"`
@@ -92,7 +94,14 @@ func (backend *Backend) Metadata(ctx context.Context, query string) (bibliograph
 		return bibliography.Work{}, fmt.Errorf("DOI metadata for %q has no title", doi)
 	}
 	work := bibliography.Work{DOI: doi, Title: item.Title, Venue: item.Container, Type: item.Type,
-		Authors: names(item.Author), Editors: names(item.Editor)}
+		Authors: names(item.Author), Editors: names(item.Editor), Notes: item.Note}
+	// CSL providers may encode edition as either text or a number.
+	if err := json.Unmarshal(item.Edition, &work.Edition); err != nil {
+		var number json.Number
+		if json.Unmarshal(item.Edition, &number) == nil {
+			work.Edition = number.String()
+		}
+	}
 	if len(item.Issued.Parts) > 0 && len(item.Issued.Parts[0]) > 0 && item.Issued.Parts[0][0] > 0 {
 		work.Year = strconv.Itoa(item.Issued.Parts[0][0])
 	}

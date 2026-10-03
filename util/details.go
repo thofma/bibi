@@ -32,9 +32,10 @@ type ChoicePage struct {
 type ChooserRequest struct {
 	Title string
 	ChoicePage
-	LoadPage func(context.Context, string) (ChoicePage, error)
-	Context  context.Context
-	Output   io.Writer
+	LoadPage     func(context.Context, string) (ChoicePage, error)
+	Context      context.Context
+	Output       io.Writer
+	Confirmation bool // A single candidate opens directly in its comparison details.
 }
 
 type detailItem struct {
@@ -120,7 +121,8 @@ func newDetailsModel(request ChooserRequest) detailsModel {
 	l.SetShowPagination(false)
 	l.DisableQuitKeybindings()
 	m := detailsModel{request: request, pages: []cachedPage{{choices: request.Choices}},
-		nextToken: request.NextToken, total: request.Total, list: l, details: viewport.New(80, 8), width: 80, height: 24, theme: theme}
+		nextToken: request.NextToken, total: request.Total, list: l, details: viewport.New(80, 8), width: 80, height: 24, theme: theme,
+		detailsFocus: request.Confirmation && len(request.Choices) == 1}
 	m.details.MouseWheelEnabled = false
 	m.showPage(0)
 	m.resize()
@@ -298,15 +300,19 @@ func (m detailsModel) View() string {
 	} else {
 		body = results + "\n\n" + details
 	}
+	action := "select"
+	if m.request.Confirmation {
+		action = "confirm"
+	}
 	navigation := m.theme.shortcut("↑/↓", "move") + "  " + m.theme.shortcut("Tab", "details") + "  " +
-		m.theme.shortcut("Enter", "select") + "  " + m.theme.shortcut("q", "cancel")
+		m.theme.shortcut("Enter", action) + "  " + m.theme.shortcut("q", "cancel")
 	if m.detailsFocus {
 		navigation = m.theme.shortcut("↑/↓ PgUp/PgDn", "scroll") + "  " + m.theme.shortcut("Tab", "results") + "  " +
-			m.theme.shortcut("Enter", "select") + "  " + m.theme.shortcut("q", "cancel")
+			m.theme.shortcut("Enter", action) + "  " + m.theme.shortcut("q", "cancel")
 	}
 	if m.width < 70 {
 		navigation = m.theme.shortcut("↑/↓", "") + m.theme.shortcut("Tab", "details") + "  " +
-			m.theme.shortcut("↵", "select") + "  " + m.theme.shortcut("q", "quit")
+			m.theme.shortcut("↵", action) + "  " + m.theme.shortcut("q", "quit")
 		if m.detailsFocus {
 			navigation = m.theme.shortcut("↑/↓", "scroll") + " " + m.theme.shortcut("Tab", "results") + " " + m.theme.shortcut("↵", "") + m.theme.shortcut("q", "")
 		}
@@ -333,6 +339,10 @@ func (m detailsModel) View() string {
 
 // RunDetailedChooser writes its interactive UI to stderr and never fetches BibTeX.
 func RunDetailedChooser(request ChooserRequest) (int, error) {
+	return runDetailedChooser(request, openChooserTerminal)
+}
+
+func runDetailedChooser(request ChooserRequest, openInput func() (io.ReadCloser, error)) (int, error) {
 	if len(request.Choices) == 0 {
 		return -1, fmt.Errorf("chooser requires at least one option")
 	}
@@ -343,11 +353,19 @@ func RunDetailedChooser(request ChooserRequest) (int, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	request.Context = ctx
+	if err := ctx.Err(); err != nil {
+		return -1, err
+	}
+	input, err := openInput()
+	if err != nil {
+		return -1, fmt.Errorf("%w: rerun in an interactive terminal to review and confirm the entry: %w", ErrInteractiveTerminalUnavailable, err)
+	}
+	defer input.Close()
 	output := request.Output
 	if output == nil {
 		output = os.Stderr
 	}
-	program := tea.NewProgram(newDetailsModel(request), tea.WithOutput(output), tea.WithContext(ctx))
+	program := tea.NewProgram(newDetailsModel(request), tea.WithInput(input), tea.WithOutput(output), tea.WithContext(ctx))
 	final, err := program.Run()
 	if err != nil {
 		return -1, fmt.Errorf("run chooser: %w", err)

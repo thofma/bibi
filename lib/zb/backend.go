@@ -139,6 +139,9 @@ func ItemWork(item Item) bibliography.Work {
 		Type: item.DocumentType.Description, Notes: item.Title.Addition,
 		IDs: make(map[string]string),
 	}
+	if work.Type == "" {
+		work.Type = map[string]string{"j": "journal article", "b": "book", "a": "proceedings article", "p": "preprint"}[item.DocumentType.Code]
+	}
 	for _, note := range []struct{ label, value string }{
 		{"Subtitle", item.Title.Subtitle}, {"Original title", item.Title.Original},
 	} {

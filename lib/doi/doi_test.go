@@ -102,6 +102,26 @@ func TestDOIMetadataUsesCSLForExplicitProviderLookup(t *testing.T) {
 	}
 }
 
+func TestDOIMetadataPreservesEditionAndTranslationNotes(t *testing.T) {
+	for _, edition := range []string{`"2"`, `2`, `null`} {
+		t.Run(edition, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, `{"title":"Book","type":"book","edition":`+edition+`,"note":"Translation of the original"}`)
+			}))
+			defer server.Close()
+			backend := &Backend{BaseURL: server.URL, HTTPClient: server.Client()}
+			work, err := backend.Metadata(context.Background(), "10.1000/book")
+			want := "2"
+			if edition == "null" {
+				want = ""
+			}
+			if err != nil || work.Edition != want || work.Notes != "Translation of the original" {
+				t.Fatalf("metadata=%+v error=%v", work, err)
+			}
+		})
+	}
+}
+
 func TestDOILookupFailures(t *testing.T) {
 	for _, test := range []struct {
 		name, body, want string

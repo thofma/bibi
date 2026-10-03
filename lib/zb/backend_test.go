@@ -77,6 +77,20 @@ func TestItemWorkShowsSourceTypeAndEditionNotes(t *testing.T) {
 	}
 }
 
+func TestItemWorkUsesSuppliedDocumentCodeWithoutGuessingFromLinks(t *testing.T) {
+	for _, test := range []struct {
+		code, want string
+	}{
+		{"j", "journal article"}, {"b", "book"}, {"a", "proceedings article"}, {"p", "preprint"}, {"", ""},
+	} {
+		work := ItemWork(Item{DocumentType: DocumentType{Code: test.code}, Title: Title{Title: "Preprint, second edition"},
+			Links: []Link{{Type: "arxiv", Identifier: "arXiv:1234.5678"}}})
+		if work.Type != test.want || work.Edition != "" {
+			t.Fatalf("code=%q work=%+v", test.code, work)
+		}
+	}
+}
+
 func TestBackendRetainsNativeRecordsForBibTeX(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

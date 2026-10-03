@@ -19,6 +19,8 @@ append its entry to a bibliography file. Quote multiword queries.
 
 Existing text is preserved. A shared DOI or database identifier skips a duplicate;
 a citation-key collision or conflicting identifiers stops the add.
+Unverified provider matches require confirmation before saving, even when there
+is only one candidate. Cancelling leaves the destination unchanged.
 
 Examples:
   bibi add "serre local fields" references.bib --bib mr

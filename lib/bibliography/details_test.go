@@ -40,3 +40,16 @@ func TestWorkFromEntryReadsNativeMetadataWithoutMutation(t *testing.T) {
 		t.Fatal("detail extraction changed native BibTeX")
 	}
 }
+
+func TestWorkFromEntryRecognizesExplicitArXivPreprint(t *testing.T) {
+	entry := bibtex.NewBibEntry("misc", "Preprint")
+	entry.AddField("archiveprefix", bibtex.NewBibConst("arXiv"))
+	entry.AddField("eprint", bibtex.NewBibConst("2301.12345v2"))
+	if work := WorkFromEntry(entry); work.Type != "preprint" {
+		t.Fatalf("missing preprint type: %+v", work)
+	}
+	entry.Type = "article"
+	if work := WorkFromEntry(entry); work.Type != "article" {
+		t.Fatal("an arXiv link changed an article into a preprint")
+	}
+}

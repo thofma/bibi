@@ -57,6 +57,21 @@ func TestSearchCursorPagesAndSourceDetails(t *testing.T) {
 	}
 }
 
+func TestWorkRecognizesOnlyExplicitPreprintSubtype(t *testing.T) {
+	for _, test := range []struct {
+		subtype, want string
+	}{
+		{"preprint", "preprint"},
+		{"", "posted-content"},
+		{"other", "posted-content"},
+	} {
+		work := (item{Type: "posted-content", Subtype: test.subtype}).work()
+		if work.Type != test.want {
+			t.Fatalf("subtype=%q type=%q, want %q", test.subtype, work.Type, test.want)
+		}
+	}
+}
+
 func TestSearchMapsFreeTextToWork(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/works" || r.URL.Query().Get("query.bibliographic") != "serre local fields 1979" || r.URL.Query().Get("rows") != "10" {
