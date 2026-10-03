@@ -135,9 +135,11 @@ type Item struct {
 }
 
 type Contributors struct {
-	Authors          []Author `json:"authors"`
-	AuthorReferences []string `json:"author_references"`
-	Editors          []Author `json:"editors"`
+	Authors []Author `json:"authors"`
+	// AuthorReferences is ancillary metadata whose entries can be strings or
+	// objects, like Item.BiographicReferences. Preserve either representation.
+	AuthorReferences []json.RawMessage `json:"author_references"`
+	Editors          []Author          `json:"editors"`
 }
 
 type Response struct {

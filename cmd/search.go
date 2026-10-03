@@ -85,6 +85,19 @@ func addSearchFlags(command *cobra.Command) {
 	command.Flags().String("bib", "zb", "BibTeX provider: zb, mr, crossref")
 }
 
+func serviceDisplayName(name string) string {
+	switch name {
+	case "zb":
+		return "zbMATH Open"
+	case "mr":
+		return "MR Lookup"
+	case "crossref":
+		return "Crossref"
+	default:
+		return name
+	}
+}
+
 // retrieveCitation shares discovery, paging, selection and provider matching
 // between commands. The caller decides where the final entry is written.
 func retrieveCitation(cmd *cobra.Command, query string, services func() searchServices, choose func(util.ChooserRequest) (int, error)) (bibliography.Record, error) {
@@ -104,8 +117,13 @@ func retrieveCitation(cmd *cobra.Command, query string, services func() searchSe
 	if !ok {
 		return bibliography.Record{}, fmt.Errorf("unknown BibTeX provider %q (choose zb, mr, or crossref)", bibName)
 	}
+	if sized, ok := discoverer.(bibliography.PageSizeSetter); ok {
+		pageSize := util.ChooserPageSize(cmd.ErrOrStderr())
+		sized.SetPageSize(pageSize)
+		diagnostics.Printf("discovery %s page_size=%d", discoveryName, pageSize)
+	}
 
-	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Searching "+discoveryName+"...")
+	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Searching "+serviceDisplayName(discoveryName)+"...")
 	var page bibliography.SearchPage
 	var err error
 	paged, canPage := discoverer.(bibliography.PagedDiscoverer)
@@ -113,9 +131,6 @@ func retrieveCitation(cmd *cobra.Command, query string, services func() searchSe
 		page, err = paged.SearchPage(cmd.Context(), query, "")
 	} else {
 		page.Works, err = discoverer.Search(query)
-		if len(page.Works) > bibliography.MaxResults {
-			page.Works = page.Works[:bibliography.MaxResults]
-		}
 	}
 	spinner.Stop()
 	if err != nil {
@@ -172,7 +187,7 @@ func retrieveCitation(cmd *cobra.Command, query string, services func() searchSe
 // selected provider, for either a discovered work or an exact identifier lookup.
 func retrieveProviderCitation(cmd *cobra.Command, work bibliography.Work, bibName string, provider bibliography.Provider, choose func(util.ChooserRequest) (int, error)) (bibliography.Record, error) {
 	diagnostics.Printf("bib provider=%s stage=retrieval started: title=%q authors=%q year=%q DOI=%q normalized_DOI=%q IDs=%v", bibName, work.Title, work.Authors, work.Year, work.DOI, bibliography.NormalizeDOI(work.DOI), work.IDs)
-	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Retrieving "+bibName+" BibTeX...")
+	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Retrieving "+serviceDisplayName(bibName)+" BibTeX...")
 	records, err := provider.BibTeX(work)
 	spinner.Stop()
 	if contextErr := cmd.Context().Err(); contextErr != nil {
@@ -224,9 +239,6 @@ func retrieveProviderCitation(cmd *cobra.Command, work bibliography.Work, bibNam
 			diagnostics.Printf("bib provider=%s stage=matching failed: all %d candidates were rejected for conflicting DOIs", bibName, candidateCount)
 		}
 		return bibliography.Record{}, fmt.Errorf("no %s BibTeX match for %q", bibName, work.Title)
-	}
-	if len(records) > bibliography.MaxResults {
-		records = records[:bibliography.MaxResults]
 	}
 	needsConfirmation := len(records) > 1 || len(exact) == 0 || len(bibliography.ReviewReasons(work, records[0].Work)) > 0
 	if needsConfirmation {

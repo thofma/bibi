@@ -20,27 +20,28 @@ func TestSearchPagesRetainNativeRecordsAcrossPages(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		query := r.URL.Query()
-		if query.Get("search_string") != "free search" || query.Get("results_per_page") != "10" {
+		if query.Get("search_string") != "free search" || query.Get("results_per_page") != "33" {
 			t.Errorf("request = %s", r.URL)
 		}
 		var items []string
 		switch query.Get("page") {
 		case "0":
-			for id := 1; id <= 10; id++ {
+			for id := 1; id <= 33; id++ {
 				items = append(items, fmt.Sprintf(`{"id":%d,"document_type":{"code":"j"},"title":{"title":"Work %d"}}`, id, id))
 			}
 		case "1":
-			items = append(items, `{"id":11,"document_type":{"code":"j"},"title":{"title":"Later work"}}`)
+			items = append(items, `{"id":34,"document_type":{"code":"j"},"title":{"title":"Later work"}}`)
 		default:
 			t.Errorf("unexpected page: %s", r.URL)
 		}
-		fmt.Fprintf(w, `{"result":[%s],"status":{"nr_total_results":11}}`, strings.Join(items, ","))
+		fmt.Fprintf(w, `{"result":[%s],"status":{"nr_total_results":34}}`, strings.Join(items, ","))
 	}))
 	defer server.Close()
 	useZBTestAPI(t, server.URL, server.Client())
 	backend := &Backend{}
+	backend.SetPageSize(33)
 	first, err := backend.SearchPage(context.Background(), "free search", "")
-	if err != nil || len(first.Works) != 10 || first.NextToken != "1" || first.Total != 11 {
+	if err != nil || len(first.Works) != 33 || first.NextToken != "1" || first.Total != 34 {
 		t.Fatalf("first = %+v, error = %v", first, err)
 	}
 	last, err := backend.SearchPage(context.Background(), "free search", first.NextToken)
@@ -60,6 +61,58 @@ func TestSearchPagesRetainNativeRecordsAcrossPages(t *testing.T) {
 	cancel()
 	if _, err := backend.SearchPage(ctx, "free search", "1"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled request error = %v", err)
+	}
+}
+
+func TestSearchLaterPageWithObjectAuthorReferences(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		query := r.URL.Query()
+		if query.Get("search_string") != "number theory" || query.Get("results_per_page") != "47" {
+			t.Errorf("unexpected search request: %s", r.URL)
+		}
+		start := 1
+		switch query.Get("page") {
+		case "0":
+		case "1":
+			start = 48
+		default:
+			t.Errorf("unexpected page: %s", r.URL)
+		}
+		var items []string
+		for id := start; id < start+47; id++ {
+			contributors := `{"authors":[{"name":"Doe, Jane"}],"author_references":[]}`
+			if id == 92 {
+				// Index 44 on the second page reproduces the reported parse failure.
+				contributors = `{"authors":[{"name":"Doe, Jane"}],"author_references":[{"aliases":[],"checked":"1","codes":["rosenlicht.maxwell"],"name":"Rosenlicht, Maxwell"}]}`
+			}
+			items = append(items, fmt.Sprintf(`{"id":%d,"document_type":{"code":"j"},"title":{"title":"Work %d"},"contributors":%s}`, id, id, contributors))
+		}
+		fmt.Fprintf(w, `{"result":[%s],"status":{"nr_total_results":94}}`, strings.Join(items, ","))
+	}))
+	defer server.Close()
+	useZBTestAPI(t, server.URL, server.Client())
+	backend := &Backend{}
+	backend.SetPageSize(47)
+	first, err := backend.SearchPage(context.Background(), "number theory", "")
+	if err != nil || len(first.Works) != 47 || first.NextToken != "1" {
+		t.Fatalf("first page=%+v error=%v", first, err)
+	}
+	second, err := backend.SearchPage(context.Background(), "number theory", first.NextToken)
+	if err != nil || len(second.Works) != 47 || second.NextToken != "" {
+		t.Fatalf("second page=%+v error=%v", second, err)
+	}
+	work := second.Works[44]
+	if work.Title != "Work 92" || len(work.Authors) != 1 || work.Authors[0] != "Doe, Jane" {
+		t.Fatalf("wrong later-page metadata: %+v", work)
+	}
+	records, err := backend.BibTeX(work)
+	if err != nil || len(records) != 1 || records[0].Entry.Fields["author"].String() != "Doe, Jane" {
+		t.Fatalf("later-page export=%+v error=%v", records, err)
+	}
+	if requests != 2 {
+		t.Fatalf("cached later-page export triggered extra requests: %d", requests)
 	}
 }
 

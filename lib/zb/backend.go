@@ -14,7 +14,13 @@ import (
 // Backend adapts zbMATH discovery and BibTeX generation to the shared interfaces.
 // It retains native search records so same-service output loses no metadata.
 type Backend struct {
-	items []Item
+	items    []Item
+	pageSize int
+}
+
+// SetPageSize sets the number of discovery results requested per page.
+func (backend *Backend) SetPageSize(size int) {
+	backend.pageSize = min(100, max(1, size))
 }
 
 func (backend *Backend) Search(query string) ([]bibliography.Work, error) {
@@ -35,7 +41,11 @@ func (backend *Backend) SearchPage(ctx context.Context, query, token string) (bi
 			return bibliography.SearchPage{}, fmt.Errorf("invalid zbMATH page token %q", token)
 		}
 	}
-	values := url.Values{"results_per_page": {strconv.Itoa(MaxSearchResults)}, "page": {strconv.Itoa(pageNumber)}}
+	pageSize := backend.pageSize
+	if pageSize == 0 {
+		pageSize = MaxSearchResults
+	}
+	values := url.Values{"results_per_page": {strconv.Itoa(pageSize)}, "page": {strconv.Itoa(pageNumber)}}
 	path := "_search"
 	doi, isDOI := bibliography.DOIQuery(query)
 	if isDOI {
@@ -73,8 +83,8 @@ func (backend *Backend) SearchPage(ctx context.Context, query, token string) (bi
 		works = append(works, work)
 	}
 	page := bibliography.SearchPage{Works: works, Total: response.Status.NrTotalResults}
-	if !isDOI && len(works) > 0 && (pageNumber*MaxSearchResults+len(works) < page.Total ||
-		(page.Total == 0 && len(works) == MaxSearchResults)) {
+	if !isDOI && len(works) > 0 && (pageNumber*pageSize+len(works) < page.Total ||
+		(page.Total == 0 && len(works) == pageSize)) {
 		page.NextToken = strconv.Itoa(pageNumber + 1)
 	}
 	return page, nil
@@ -135,9 +145,14 @@ func (backend *Backend) BibTeX(work bibliography.Work) ([]bibliography.Record, e
 func ItemWork(item Item) bibliography.Work {
 	doi, _ := ItemGetDOI(item)
 	work := bibliography.Work{
-		Title: ItemGetTitle(item), Year: item.Year, DOI: doi,
-		Type: item.DocumentType.Description, Notes: item.Title.Addition,
+		Title: ItemGetTitle(item), Year: availableText(item.Year), DOI: doi,
+		Type: availableText(item.DocumentType.Description), Notes: availableText(item.Title.Addition),
 		IDs: make(map[string]string),
+	}
+	if restrictedCitationMetadata(item) || isLicensePlaceholder(item.Source.Source) ||
+		isLicensePlaceholder(item.Title.Original) || isLicensePlaceholder(item.Title.Subtitle) ||
+		isLicensePlaceholder(item.Title.Addition) {
+		work.MetadataNotice = restrictedMetadataNotice(item)
 	}
 	if work.Type == "" {
 		work.Type = map[string]string{"j": "journal article", "b": "book", "a": "proceedings article", "p": "preprint"}[item.DocumentType.Code]
@@ -145,7 +160,7 @@ func ItemWork(item Item) bibliography.Work {
 	for _, note := range []struct{ label, value string }{
 		{"Subtitle", item.Title.Subtitle}, {"Original title", item.Title.Original},
 	} {
-		if note.value != "" {
+		if note.value = availableText(note.value); note.value != "" {
 			if work.Notes != "" {
 				work.Notes += "; "
 			}
@@ -155,32 +170,32 @@ func ItemWork(item Item) bibliography.Work {
 	if item.ID != 0 {
 		work.IDs["zb"] = strconv.Itoa(item.ID)
 	}
-	if item.Identifier != "" && strings.EqualFold(item.Database, "Zbl") {
-		work.IDs["zbl"] = item.Identifier
+	if identifier := availableText(item.Identifier); identifier != "" && strings.EqualFold(item.Database, "Zbl") {
+		work.IDs["zbl"] = identifier
 	}
 	if arxiv, _ := ItemGetArXiv(item); arxiv != "" {
 		work.IDs["arxiv"] = arxiv
 	}
-	work.Venue = item.Source.Source
+	work.Venue = availableText(item.Source.Source)
 	if work.Venue == "" {
 		for _, series := range item.Source.Series {
-			if series.Title != "" {
-				work.Venue = series.Title
+			if title := firstNonEmpty(series.Title, series.ShortTitle); title != "" {
+				work.Venue = title
 				break
 			}
 		}
 	}
 	if work.Venue == "" && len(item.Source.Book) > 0 {
-		work.Venue = item.Source.Book[0].Title
+		work.Venue = availableText(item.Source.Book[0].Title)
 	}
 	for _, author := range item.Contributors.Authors {
-		if author.Name != "" {
-			work.Authors = append(work.Authors, author.Name)
+		if name := availableText(author.Name); name != "" {
+			work.Authors = append(work.Authors, name)
 		}
 	}
 	for _, editor := range item.Contributors.Editors {
-		if editor.Name != "" {
-			work.Editors = append(work.Editors, editor.Name)
+		if name := availableText(editor.Name); name != "" {
+			work.Editors = append(work.Editors, name)
 		}
 	}
 	return work

@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/term"
 )
 
 // Choice keeps a compact result label separate from its complete metadata.
@@ -36,6 +37,28 @@ type ChooserRequest struct {
 	Context      context.Context
 	Output       io.Writer
 	Confirmation bool // A single candidate opens directly in its comparison details.
+}
+
+// ChooserPageSize requests enough results to fill the terminal's results pane.
+// Keep provider pages bounded, and use the chooser's default dimensions when
+// output is redirected or the terminal size is unavailable.
+func ChooserPageSize(output io.Writer) int {
+	width, height := 80, 24
+	if file, ok := output.(*os.File); ok {
+		if w, h, err := term.GetSize(file.Fd()); err == nil && w > 0 && h > 0 {
+			width, height = w, h
+		}
+	}
+	return min(100, chooserResultRows(width, height))
+}
+
+func chooserResultRows(width, height int) int {
+	// Header, status, navigation and paging hints each occupy one row.
+	frameHeight := 1
+	if width >= 24 && height >= 10 {
+		frameHeight = 3
+	}
+	return max(1, height-4-frameHeight)
 }
 
 type detailItem struct {
@@ -113,7 +136,7 @@ func newDetailsModel(request ChooserRequest) detailsModel {
 		output = os.Stderr
 	}
 	theme := newChooserTheme(output)
-	l := list.New(nil, detailDelegate{theme: theme}, 80, 10)
+	l := list.New(nil, detailDelegate{theme: theme}, 80, 1)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)
@@ -121,7 +144,7 @@ func newDetailsModel(request ChooserRequest) detailsModel {
 	l.SetShowPagination(false)
 	l.DisableQuitKeybindings()
 	m := detailsModel{request: request, pages: []cachedPage{{choices: request.Choices}},
-		nextToken: request.NextToken, total: request.Total, list: l, details: viewport.New(80, 8), width: 80, height: 24, theme: theme,
+		nextToken: request.NextToken, total: request.Total, list: l, details: viewport.New(80, 1), width: 80, height: 24, theme: theme,
 		detailsFocus: request.Confirmation && len(request.Choices) == 1}
 	m.details.MouseWheelEnabled = false
 	m.showPage(0)
@@ -160,24 +183,20 @@ func (m *detailsModel) refreshDetails(reset bool) {
 func (m *detailsModel) resize() {
 	m.width = max(1, m.width)
 	m.height = max(1, m.height)
-	bodyHeight := max(1, m.height-5)
-	m.compact = m.width < 60 || m.height < 18
+	resultRows := chooserResultRows(m.width, m.height)
+	m.compact = m.width < 110 || m.height < 18
 	m.boxed = m.width >= 24 && m.height >= 10
-	frameWidth, frameHeight := 0, 1
+	frameWidth := 0
 	if m.boxed {
-		frameWidth, frameHeight = 4, 3
+		frameWidth = 4
 	}
 	if m.compact {
-		m.list.SetSize(max(1, m.width-frameWidth), max(1, bodyHeight-frameHeight))
+		m.list.SetSize(max(1, m.width-frameWidth), resultRows)
 		m.details.Width, m.details.Height = m.list.Width(), m.list.Height()
-	} else if m.width >= 110 {
-		listWidth := m.width * 45 / 100
-		m.list.SetSize(listWidth-frameWidth, bodyHeight-frameHeight)
-		m.details.Width, m.details.Height = m.width-listWidth-1-frameWidth, max(1, bodyHeight-frameHeight)
 	} else {
-		listHeight := min(11, max(6, bodyHeight/2))
-		m.list.SetSize(m.width-frameWidth, max(1, listHeight-frameHeight))
-		m.details.Width, m.details.Height = m.width-frameWidth, max(1, bodyHeight-listHeight-1-frameHeight)
+		listWidth := m.width * 45 / 100
+		m.list.SetSize(listWidth-frameWidth, resultRows)
+		m.details.Width, m.details.Height = m.width-listWidth-1-frameWidth, resultRows
 	}
 	m.refreshDetails(false)
 }
@@ -284,7 +303,7 @@ func (m detailsModel) View() string {
 		focus = fmt.Sprintf("DETAILS · %.0f%% · Tab for results", m.details.ScrollPercent()*100)
 	}
 	resultsTitle := fmt.Sprintf("RESULTS · %d/%d", m.list.Index()+1, len(page.choices))
-	results, details := m.list.View(), line(focus)+"\n"+m.details.View()
+	results, details := line(resultsTitle)+"\n"+m.list.View(), line(focus)+"\n"+m.details.View()
 	if m.boxed {
 		results = m.theme.box(resultsTitle, m.list.View(), m.list.Width()+4, !m.detailsFocus)
 		details = m.theme.box(focus, m.details.View(), m.details.Width+4, m.detailsFocus)
@@ -295,10 +314,8 @@ func (m detailsModel) View() string {
 		if m.detailsFocus {
 			body = details
 		}
-	} else if m.width >= 110 {
-		body = lipgloss.JoinHorizontal(lipgloss.Top, results, " ", details)
 	} else {
-		body = results + "\n\n" + details
+		body = lipgloss.JoinHorizontal(lipgloss.Top, results, " ", details)
 	}
 	action := "select"
 	if m.request.Confirmation {
@@ -365,7 +382,7 @@ func runDetailedChooser(request ChooserRequest, openInput func() (io.ReadCloser,
 	if output == nil {
 		output = os.Stderr
 	}
-	program := tea.NewProgram(newDetailsModel(request), tea.WithInput(input), tea.WithOutput(output), tea.WithContext(ctx))
+	program := tea.NewProgram(newDetailsModel(request), tea.WithInput(input), tea.WithOutput(output), tea.WithContext(ctx), tea.WithAltScreen())
 	final, err := program.Run()
 	if err != nil {
 		return -1, fmt.Errorf("run chooser: %w", err)

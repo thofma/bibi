@@ -24,8 +24,11 @@ type Work struct {
 	Type    string
 	Edition string
 	Notes   string
-	DOI     string
-	IDs     map[string]string
+	// MetadataNotice explains source restrictions without treating them as
+	// citation metadata or including them in queries to another provider.
+	MetadataNotice string
+	DOI            string
+	IDs            map[string]string
 }
 
 type Discoverer interface {
@@ -44,6 +47,13 @@ type PagedDiscoverer interface {
 	SearchPage(ctx context.Context, query, token string) (SearchPage, error)
 }
 
+// PageSizeSetter configures a discovery page before the first request. The size
+// stays fixed while browsing, so page-number providers do not skip records when
+// the terminal is resized.
+type PageSizeSetter interface {
+	SetPageSize(int)
+}
+
 // Provider retrieves candidates from the requested BibTeX service only.
 type Provider interface {
 	BibTeX(work Work) ([]Record, error)
@@ -56,6 +66,18 @@ type Record struct {
 }
 
 func (work Work) Label() string {
+	if work.Title == "" && work.MetadataNotice != "" {
+		parts := []string{"Metadata restricted"}
+		if work.Year != "" {
+			parts = append(parts, work.Year)
+		}
+		if work.DOI != "" {
+			parts = append(parts, "DOI: "+work.DOI)
+		} else if id := work.IDs["zb"]; id != "" {
+			parts = append(parts, "zbMATH: "+id)
+		}
+		return strings.Join(parts, ", ")
+	}
 	contributors := work.Authors
 	if len(contributors) == 0 {
 		contributors = work.Editors
@@ -85,6 +107,7 @@ func (work Work) Details() string {
 			lines = append(lines, label+": "+value)
 		}
 	}
+	add("Metadata", work.MetadataNotice)
 	add("Title", work.Title)
 	add("Authors", strings.Join(work.Authors, "; "))
 	add("Editors", strings.Join(work.Editors, "; "))

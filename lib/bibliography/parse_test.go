@@ -1,6 +1,24 @@
 package bibliography
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
+
+func TestParseBibTeXFullMonthMacros(t *testing.T) {
+	for _, month := range []string{"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"} {
+		for _, macro := range []string{month, strings.ToLower(month), strings.ToUpper(month)} {
+			t.Run(macro, func(t *testing.T) {
+				source := fmt.Sprintf(`@article{Ore1952,title={The General Chinese Remainder Theorem},month=%s}`, macro)
+				parsed, err := ParseBibTeX([]byte(source))
+				if err != nil || len(parsed.Entries) != 1 || parsed.Entries[0].Fields["month"].String() != month {
+					t.Fatalf("month %s: parsed=%+v error=%v", macro, parsed, err)
+				}
+			})
+		}
+	}
+}
 
 func TestParseBibTeXRecoversAfterMalformedEntries(t *testing.T) {
 	for _, malformed := range []string{

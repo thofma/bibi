@@ -91,26 +91,7 @@ func runZB(cmd *cobra.Command, args []string) error {
 }
 
 func zbChoiceLabel(item zb.Item) string {
-	author := "Unknown author"
-	contributors := item.Contributors.Authors
-	if len(contributors) == 0 {
-		contributors = item.Contributors.Editors
-	}
-	if len(contributors) > 0 {
-		author = contributors[0].Name
-		if len(contributors) > 1 {
-			author += " et al."
-		}
-	}
-
-	parts := []string{author}
-	if item.Year != "" {
-		parts = append(parts, item.Year)
-	}
-	if title := zb.ItemGetTitle(item); title != "" {
-		parts = append(parts, title)
-	}
-	return strings.Join(parts, ", ")
+	return zb.ItemWork(item).Label()
 }
 
 func init() {

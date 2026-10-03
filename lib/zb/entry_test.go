@@ -58,3 +58,47 @@ func TestParseToStructAllowsObjectBiographicReferences(t *testing.T) {
 		t.Errorf("biographic reference author = %q, want %q", got, want)
 	}
 }
+
+func TestParseToStructPreservesMixedAuthorReferences(t *testing.T) {
+	response, err := ParseToStruct(`{
+		"result": [{
+			"id": 90,
+			"document_type": {"code": "j"},
+			"title": {"title": "Number theory"},
+			"contributors": {
+				"authors": [{"name": "Doe, Jane"}],
+				"author_references": [
+					"old.author-code",
+					{"name": "Newton, Isaac", "codes": ["newton.isaac"], "additional_metadata": {"type": "reference"}},
+					null
+				]
+			}
+		}]
+	}`)
+	if err != nil || len(response.Result) != 1 {
+		t.Fatalf("response=%+v error=%v", response, err)
+	}
+	item := response.Result[0]
+	refs := item.Contributors.AuthorReferences
+	if len(refs) != 3 {
+		t.Fatalf("author references were lost: %s", refs)
+	}
+	var code string
+	if err := json.Unmarshal(refs[0], &code); err != nil || code != "old.author-code" {
+		t.Fatalf("string reference=%s error=%v", refs[0], err)
+	}
+	var reference struct {
+		Name     string            `json:"name"`
+		Metadata map[string]string `json:"additional_metadata"`
+	}
+	if err := json.Unmarshal(refs[1], &reference); err != nil || reference.Name != "Newton, Isaac" || reference.Metadata["type"] != "reference" {
+		t.Fatalf("object reference=%s error=%v", refs[1], err)
+	}
+	if string(refs[2]) != "null" {
+		t.Fatalf("null reference=%s", refs[2])
+	}
+	entry, err := ItemToBibEntry(item)
+	if err != nil || entry.Fields["author"].String() != "Doe, Jane" {
+		t.Fatalf("citation authors changed: entry=%+v error=%v", entry, err)
+	}
+}

@@ -33,10 +33,13 @@ func TestDetailsFollowHighlightAndScrollWithoutChangingSelection(t *testing.T) {
 		{Label: "Second", Details: "Title: Second\n\nAuthors: " + strings.Repeat("Full Author Name; ", 100)},
 	}}})
 	m, _ = detailUpdate(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	if !strings.Contains(ansi.Strip(m.View()), "Title: Second") || m.list.Index() != 1 {
-		t.Fatalf("details did not follow highlight: %s", m.View())
+	if !strings.Contains(ansi.Strip(m.details.View()), "Title: Second") || m.list.Index() != 1 {
+		t.Fatalf("details did not follow highlight: %s", m.details.View())
 	}
 	m, _ = detailUpdate(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	if !strings.Contains(ansi.Strip(m.View()), "Title: Second") {
+		t.Fatalf("Tab did not show selected result details: %s", m.View())
+	}
 	m, _ = detailUpdate(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
 	if m.details.YOffset == 0 || m.list.Index() != 1 {
 		t.Fatalf("detail scroll changed selection or failed: offset=%d index=%d", m.details.YOffset, m.list.Index())
@@ -157,6 +160,52 @@ func TestDetailsResizeLongMetadataAndTerminalEscapes(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestDetailsResultsFillTerminalHeight(t *testing.T) {
+	choices := make([]Choice, 100)
+	for i := range choices {
+		choices[i] = Choice{Label: fmt.Sprintf("Result%03d", i+1), Details: "Title: Selected citation\n" + strings.Repeat("Metadata line\n", 60)}
+	}
+	for _, size := range [][2]int{{80, 24}, {80, 48}, {120, 48}, {40, 32}, {24, 10}, {16, 8}} {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			m := newDetailsModel(ChooserRequest{ChoicePage: ChoicePage{Choices: choices}})
+			m, _ = detailUpdate(t, m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			view := ansi.Strip(m.View())
+			if got := lipgloss.Height(view); got != size[1] {
+				t.Fatalf("selector height = %d, want %d:\n%s", got, size[1], view)
+			}
+			if visible := strings.Count(view, "Result0"); size[1] >= 24 && visible <= 10 {
+				t.Errorf("only %d results visible in a %d-row terminal:\n%s", visible, size[1], view)
+			}
+			m.list.Select(65)
+			m.refreshDetails(true)
+			m, _ = detailUpdate(t, m, tea.WindowSizeMsg{Width: size[0], Height: max(8, size[1]-4)})
+			if m.list.Index() != 65 || !strings.Contains(ansi.Strip(m.View()), "Result066") {
+				t.Fatalf("resize lost the highlighted result: index=%d\n%s", m.list.Index(), m.View())
+			}
+			m, _ = detailUpdate(t, m, tea.KeyMsg{Type: tea.KeyTab})
+			if !strings.Contains(ansi.Strip(m.View()), "Title:") || m.list.Index() != 65 {
+				t.Fatalf("Tab did not show details for the selected result:\n%s", m.View())
+			}
+			m, _ = detailUpdate(t, m, tea.KeyMsg{Type: tea.KeyTab})
+			if !strings.Contains(ansi.Strip(m.View()), "Result066") || m.list.Index() != 65 {
+				t.Fatalf("Tab did not restore the highlighted result:\n%s", m.View())
+			}
+		})
+	}
+}
+
+func TestChooserPageSizeMatchesDefaultVisibleResults(t *testing.T) {
+	choices := make([]Choice, 100)
+	for i := range choices {
+		choices[i] = Choice{Label: fmt.Sprintf("Result%03d", i+1)}
+	}
+	m := newDetailsModel(ChooserRequest{Output: io.Discard, ChoicePage: ChoicePage{Choices: choices}})
+	visible := strings.Count(ansi.Strip(m.View()), "Result0")
+	if pageSize := ChooserPageSize(io.Discard); pageSize != visible || pageSize <= 10 {
+		t.Fatalf("page size=%d visible results=%d", pageSize, visible)
 	}
 }
 

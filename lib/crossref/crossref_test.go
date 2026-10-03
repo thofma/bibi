@@ -20,26 +20,27 @@ import (
 func TestSearchCursorPagesAndSourceDetails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if q.Get("query.bibliographic") != "free search" || q.Get("rows") != "10" || q.Has("offset") {
+		if q.Get("query.bibliographic") != "free search" || q.Get("rows") != "33" || q.Has("offset") {
 			t.Errorf("request = %s", r.URL)
 		}
 		var items []string
 		switch q.Get("cursor") {
 		case "*":
-			for id := 1; id <= 10; id++ {
+			for id := 1; id <= 33; id++ {
 				items = append(items, fmt.Sprintf(`{"DOI":"10.1000/%d","title":["Work %d"]}`, id, id))
 			}
 		case "opaque+/= token":
-			items = append(items, `{"DOI":"10.1000/11","title":["Later work"],"container-title":["Full Journal Name"],"type":"book","edition-number":"2","subtype":"translation"}`)
+			items = append(items, `{"DOI":"10.1000/34","title":["Later work"],"container-title":["Full Journal Name"],"type":"book","edition-number":"2","subtype":"translation"}`)
 		default:
 			t.Errorf("unexpected cursor %q", q.Get("cursor"))
 		}
-		fmt.Fprintf(w, `{"message":{"items":[%s],"total-results":11,"next-cursor":"opaque+/= token"}}`, strings.Join(items, ","))
+		fmt.Fprintf(w, `{"message":{"items":[%s],"total-results":34,"next-cursor":"opaque+/= token"}}`, strings.Join(items, ","))
 	}))
 	defer server.Close()
 	backend := &Backend{BaseURL: server.URL, HTTPClient: server.Client()}
+	backend.SetPageSize(33)
 	first, err := backend.SearchPage(context.Background(), "free search", "")
-	if err != nil || len(first.Works) != 10 || first.NextToken != "opaque+/= token" || first.Total != 11 {
+	if err != nil || len(first.Works) != 33 || first.NextToken != "opaque+/= token" || first.Total != 34 {
 		t.Fatalf("first = %+v, error = %v", first, err)
 	}
 	last, err := backend.SearchPage(context.Background(), "free search", first.NextToken)
@@ -110,6 +111,55 @@ func TestSearchDOIUsesExactRoute(t *testing.T) {
 	works, err := backend.Search("https://doi.org/10.1000/EXAMPLE")
 	if err != nil || len(works) != 1 || works[0].Year != "1999" {
 		t.Fatalf("works = %+v, error = %v", works, err)
+	}
+}
+
+func TestSearchDOIAcceptsOnlyExplicitAliases(t *testing.T) {
+	for _, test := range []struct {
+		name, canonical, aliases string
+		wantError                bool
+	}{
+		{"listed alias", "10.1080/00029890.1952.11988142", `["10.2307/2306804"]`, false},
+		{"normalized alias", "10.1080/00029890.1952.11988142", `["https://doi.org/10.2307/2306804"]`, false},
+		{"unrelated alias", "10.1000/wrong", `["10.1000/other"]`, true},
+		{"no alias", "10.1000/wrong", `[]`, true},
+		{"missing canonical DOI", "", `["10.2307/2306804"]`, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				switch r.URL.Path {
+				case "/works/10.2307/2306804":
+					fmt.Fprintf(w, `{"message":{"DOI":%q,"aliases":%s,"title":["The General Chinese Remainder Theorem"],"container-title":["The American Mathematical Monthly"]}}`, test.canonical, test.aliases)
+				case "/works/" + test.canonical + "/transform":
+					fmt.Fprintf(w, `@article{Ore1952,title={The General Chinese Remainder Theorem},doi={%s},month=June}`, test.canonical)
+				default:
+					t.Errorf("unexpected route: %s", r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			backend := &Backend{BaseURL: server.URL, HTTPClient: server.Client()}
+			works, err := backend.Search("10.2307/2306804")
+			if test.wantError {
+				if err == nil || !strings.Contains(err.Error(), "different DOI") || len(works) != 0 || requests != 1 {
+					t.Fatalf("unverified alias: works=%+v error=%v requests=%d", works, err, requests)
+				}
+				return
+			}
+			if err != nil || len(works) != 1 || works[0].DOI != test.canonical {
+				t.Fatalf("explicit alias: works=%+v error=%v", works, err)
+			}
+			records, err := backend.BibTeX(works[0])
+			if err != nil || len(records) != 1 || records[0].DOI != test.canonical || requests != 2 ||
+				records[0].Journals.Full != "The American Mathematical Monthly" || records[0].Entry.Fields["month"].String() != "June" {
+				t.Fatalf("canonical export: records=%+v error=%v requests=%d", records, err, requests)
+			}
+			if exact, _ := bibliography.Match(works[0], records[0].Work, "crossref"); !exact {
+				t.Fatal("canonical DOI did not verify export identity")
+			}
+		})
 	}
 }
 

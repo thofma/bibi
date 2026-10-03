@@ -12,6 +12,9 @@ import (
 // ItemToBibEntry converts an individual zbMath item into a BibTeX entry.
 // Related items may be supplied to resolve metadata for an enclosing book.
 func ItemToBibEntry(item Item, relatedItems ...Item) (*bibtex.BibEntry, error) {
+	if restrictedCitationMetadata(item) {
+		return nil, fmt.Errorf("cannot export zbMATH record %d: %s", item.ID, restrictedMetadataNotice(item))
+	}
 	switch item.DocumentType.Code {
 	case "j":
 		return ItemToArticle(item), nil
@@ -141,17 +144,17 @@ func addCommonFields(entry *bibtex.BibEntry, item Item) {
 var pageRangePattern = regexp.MustCompile(`([0-9]+)\s*[-–—]+\s*([0-9]+)`)
 
 func addBibTextField(entry *bibtex.BibEntry, name, value string) {
-	addBibField(entry, name, bibliography.EscapeTeXText(value))
+	addBibField(entry, name, bibliography.EscapeTeXText(availableText(value)))
 }
 
 func addBibTitleField(entry *bibtex.BibEntry, name, value string) {
-	if value = strings.TrimSpace(value); value != "" {
+	if value = availableText(value); value != "" {
 		addBibField(entry, name, bibliography.ProtectTitle(bibliography.EscapeTeXText(value)))
 	}
 }
 
 func addBibField(entry *bibtex.BibEntry, name, value string) {
-	if value = strings.TrimSpace(value); value != "" {
+	if value = availableText(value); value != "" {
 		entry.AddField(name, bibtex.NewBibConst(value))
 	}
 }
@@ -161,7 +164,7 @@ func ItemGetID(item Item) int {
 }
 
 func ItemGetTitle(item Item) string {
-	return strings.TrimSpace(item.Title.Title)
+	return availableText(item.Title.Title)
 }
 
 func ItemGetAuthors(item Item) string {
@@ -175,7 +178,7 @@ func ItemGetEditors(item Item) string {
 func formatContributors(contributors []Author) string {
 	names := make([]string, 0, len(contributors))
 	for _, contributor := range contributors {
-		if name := strings.TrimSpace(contributor.Name); name != "" {
+		if name := availableText(contributor.Name); name != "" {
 			names = append(names, name)
 		}
 	}
@@ -191,7 +194,7 @@ func ItemGetSeriesTitle(item Item) string {
 }
 
 func ItemGetSourcePages(item Item) string {
-	return strings.TrimSpace(item.Source.Pages)
+	return availableText(item.Source.Pages)
 }
 
 func ItemGetSeriesISSN(item Item) string {
@@ -200,7 +203,7 @@ func ItemGetSeriesISSN(item Item) string {
 		return ""
 	}
 	for _, issn := range series.ISSN {
-		if number := strings.TrimSpace(issn.Number); number != "" {
+		if number := availableText(issn.Number); number != "" {
 			return number
 		}
 	}
@@ -212,7 +215,7 @@ func ItemGetSeriesVolume(item Item) string {
 	if !ok {
 		return ""
 	}
-	return strings.TrimSpace(series.Volume)
+	return availableText(series.Volume)
 }
 
 func ItemGetSeriesIssue(item Item) string {
@@ -220,7 +223,7 @@ func ItemGetSeriesIssue(item Item) string {
 	if !ok {
 		return ""
 	}
-	return strings.TrimSpace(series.Issue)
+	return availableText(series.Issue)
 }
 
 // ItemJournalNames keeps the two supplied journal names distinct even when the
@@ -231,8 +234,8 @@ func ItemJournalNames(item Item) bibliography.JournalNames {
 		return bibliography.JournalNames{}
 	}
 	return bibliography.JournalNames{
-		Full:  bibliography.EscapeTeXText(strings.TrimSpace(series.Title)),
-		Short: bibliography.EscapeTeXText(strings.TrimSpace(series.ShortTitle)),
+		Full:  bibliography.EscapeTeXText(availableText(series.Title)),
+		Short: bibliography.EscapeTeXText(availableText(series.ShortTitle)),
 	}
 }
 
@@ -241,7 +244,7 @@ func ItemGetSeriesYear(item Item) string {
 	if !ok {
 		return ""
 	}
-	return strings.TrimSpace(series.Year)
+	return availableText(series.Year)
 }
 
 func ItemGetBookTitle(item Item) string {
@@ -249,7 +252,7 @@ func ItemGetBookTitle(item Item) string {
 	if !ok {
 		return ""
 	}
-	return strings.TrimSpace(book.Title)
+	return availableText(book.Title)
 }
 
 func ItemGetBookPublisher(item Item) string {
@@ -257,7 +260,7 @@ func ItemGetBookPublisher(item Item) string {
 	if !ok {
 		return ""
 	}
-	return strings.TrimSpace(book.Publisher)
+	return availableText(book.Publisher)
 }
 
 func ItemGetBookYear(item Item) string {
@@ -265,7 +268,7 @@ func ItemGetBookYear(item Item) string {
 	if !ok {
 		return ""
 	}
-	return strings.TrimSpace(book.Year)
+	return availableText(book.Year)
 }
 
 func ItemGetBookISBN(item Item) string {
@@ -276,7 +279,7 @@ func ItemGetBookISBN(item Item) string {
 
 	isbns := make([]string, 0, len(book.ISBN))
 	for _, isbn := range book.ISBN {
-		if number := strings.TrimSpace(isbn.Number); number != "" {
+		if number := availableText(isbn.Number); number != "" {
 			isbns = append(isbns, number)
 		}
 	}
@@ -286,7 +289,9 @@ func ItemGetBookISBN(item Item) string {
 func ItemGetDOI(item Item) (string, string) {
 	for _, link := range item.Links {
 		if strings.EqualFold(strings.TrimSpace(link.Type), "doi") {
-			return strings.TrimSpace(link.Identifier), strings.TrimSpace(link.URL)
+			if doi := availableText(link.Identifier); doi != "" {
+				return doi, availableText(link.URL)
+			}
 		}
 	}
 	return "", ""
@@ -296,11 +301,13 @@ func ItemGetDOI(item Item) (string, string) {
 func ItemGetArXiv(item Item) (string, string) {
 	for _, link := range item.Links {
 		if strings.EqualFold(strings.TrimSpace(link.Type), "arxiv") {
-			return normalizeArXivID(link.Identifier), strings.TrimSpace(link.URL)
+			if id := availableText(link.Identifier); id != "" {
+				return normalizeArXivID(id), availableText(link.URL)
+			}
 		}
 	}
 
-	identifier := strings.TrimSpace(item.Identifier)
+	identifier := availableText(item.Identifier)
 	if strings.HasPrefix(strings.ToLower(identifier), "arxiv:") {
 		return normalizeArXivID(identifier), ""
 	}
@@ -358,7 +365,7 @@ func relatedBookItem(item Item, relatedItems []Item) *Item {
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
+		if value = availableText(value); value != "" {
 			return value
 		}
 	}

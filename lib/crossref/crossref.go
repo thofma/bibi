@@ -27,6 +27,12 @@ type Backend struct {
 	BaseURL    string
 	HTTPClient *http.Client
 	journals   map[string]bibliography.JournalNames
+	pageSize   int
+}
+
+// SetPageSize sets the number of discovery results requested per page.
+func (backend *Backend) SetPageSize(size int) {
+	backend.pageSize = min(100, max(1, size))
 }
 
 type contributor struct {
@@ -41,6 +47,7 @@ type date struct {
 
 type item struct {
 	DOI             string        `json:"DOI"`
+	Aliases         []string      `json:"aliases"`
 	Title           []string      `json:"title"`
 	Subtitle        []string      `json:"subtitle"`
 	ContainerTitle  []string      `json:"container-title"`
@@ -78,7 +85,15 @@ func (backend *Backend) SearchPage(ctx context.Context, query, token string) (bi
 			return bibliography.SearchPage{}, fmt.Errorf("parse Crossref DOI response: %w", err)
 		}
 		work := payload.Message.work()
-		if bibliography.NormalizeDOI(work.DOI) != doi {
+		canonicalDOI, validDOI := bibliography.DOIQuery(work.DOI)
+		matchesDOI := validDOI && canonicalDOI == doi
+		for _, alias := range payload.Message.Aliases {
+			if validDOI && bibliography.NormalizeDOI(alias) == doi {
+				matchesDOI = true
+				break
+			}
+		}
+		if !matchesDOI {
 			return bibliography.SearchPage{}, fmt.Errorf("Crossref returned a different DOI for %q", doi)
 		}
 		backend.rememberJournals(payload.Message)
@@ -87,7 +102,11 @@ func (backend *Backend) SearchPage(ctx context.Context, query, token string) (bi
 
 	values := url.Values{}
 	values.Set("query.bibliographic", query)
-	values.Set("rows", strconv.Itoa(bibliography.MaxResults))
+	pageSize := backend.pageSize
+	if pageSize == 0 {
+		pageSize = bibliography.MaxResults
+	}
+	values.Set("rows", strconv.Itoa(pageSize))
 	if token == "" {
 		token = "*"
 	}
@@ -112,7 +131,7 @@ func (backend *Backend) SearchPage(ctx context.Context, query, token string) (bi
 		works = append(works, item.work())
 	}
 	page := bibliography.SearchPage{Works: works, Total: payload.Message.Total}
-	if len(works) == bibliography.MaxResults && (page.Total == 0 || page.Total > len(works)) {
+	if len(works) == pageSize && (page.Total == 0 || page.Total > len(works)) {
 		page.NextToken = payload.Message.NextToken
 	}
 	return page, nil

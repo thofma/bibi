@@ -7,13 +7,20 @@ import (
 	"github.com/nickng/bibtex"
 )
 
-// ParseBibTeX retains native field contents while accepting the capitalized
-// month macros used by DOI services. The parser's built-in names are lowercase.
+// ParseBibTeX retains native field contents while accepting month abbreviations
+// and full names used by DOI services. The parser's built-in macros are lowercase
+// three-letter abbreviations.
 func ParseBibTeX(body []byte) (*bibtex.BibTex, error) {
 	var source strings.Builder
-	for _, month := range []string{"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"} {
-		capitalized := strings.ToUpper(month[:1]) + month[1:]
-		fmt.Fprintf(&source, "@string{%s = %s}\n@string{%s = %s}\n", capitalized, month, strings.ToUpper(month), month)
+	for _, month := range []string{"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"} {
+		abbreviation := strings.ToLower(month[:3])
+		defined := map[string]bool{abbreviation: true}
+		for _, alias := range []string{month[:3], strings.ToUpper(abbreviation), month, strings.ToLower(month), strings.ToUpper(month)} {
+			if !defined[alias] {
+				fmt.Fprintf(&source, "@string{%s = %s}\n", alias, abbreviation)
+				defined[alias] = true
+			}
+		}
 	}
 	source.Write(body)
 	parsed, err := bibtex.Parse(strings.NewReader(source.String()))

@@ -184,13 +184,19 @@ Queries are free text, so authors, titles, and years can be combined. A bare DOI
 or a DOI resolver URL uses an exact DOI lookup in the chosen discovery service.
 A year in a free-text query is a search term, not a strict year filter.
 
-Use the arrow keys to highlight a result and view its details. Use `n` or `PgDn`
-for the next page and `p` or `PgUp` for the previous page. Page sizes adapt to your
-terminal. If loading a page fails, press `n` to retry.
+The selector fills the terminal height, showing as many results as fit. Use the
+arrow keys to highlight a result and `PgUp`/`PgDn` to move through the current
+results. Use `n` for the next provider page and `p` for the previous page.
+Search requests enough results to fill the initial terminal height, up to 100 per
+provider page. That page size stays fixed while browsing so resizing does not skip
+results; the selector itself resizes immediately.
+If loading a page fails, press `n` to retry.
 
 Press `Tab` to scroll the detail pane with the arrow keys or `PgUp`/`PgDn`, then
-`Tab` to return to the results. In small terminals, `Tab` switches between
-results and details. Set `NO_COLOR=1` to disable colours.
+`Tab` to return to the results. Wide terminals show results and details side by
+side; narrower or short terminals show one pane at a time, with `Tab` switching
+between them. Leaving the selector restores the previous terminal screen.
+Set `NO_COLOR=1` to disable colours.
 
 After selecting a work, bibi checks the provider candidates against its identifiers.
 A shared normalized DOI or provider identifier verifies identity; conflicting
@@ -217,6 +223,16 @@ The requested BibTeX provider is always used, with no automatic fallback.
 `--bib mr` returns MR Lookup's BibTeX, and `--bib crossref` requires a DOI.
 If the provider cannot supply the entry, the command fails without printing
 BibTeX. Coverage varies by service.
+
+Some zbMATH records replace citation fields with a license restriction notice.
+The selector marks these records as restricted and keeps available identifiers
+and journal metadata. bibi refuses to export the restricted citation as BibTeX.
+For a record with a DOI, the details and error include a command to retrieve it
+through Crossref, for example:
+
+```sh
+bibi search 10.2307/2306804 --discovery crossref --bib crossref
+```
 
 ### Add to a bibliography
 
