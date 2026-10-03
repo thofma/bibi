@@ -12,7 +12,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/nickng/bibtex"
 	"github.com/thofma/bibi/lib/bibliography"
@@ -391,40 +390,4 @@ func TestGetBatchStopsWhenProviderSelectionIsCancelled(t *testing.T) {
 	if err := root.Execute(); !errors.Is(err, errSelectionCancelled) || calls != 1 || stdout.Len() != 0 {
 		t.Fatalf("error=%v calls=%d stdout=%q", err, calls, stdout.String())
 	}
-}
-
-func TestGetArXivRequestsAreSpacedAndCancellable(t *testing.T) {
-	t.Run("spacing", func(t *testing.T) {
-		var starts []time.Time
-		interval := 15 * time.Millisecond
-		lookup := paceArXivLookups(func(context.Context, string) (bibliography.Record, error) {
-			starts = append(starts, time.Now())
-			return getPreprint(""), nil
-		}, interval)
-		for _, id := range []string{"2301.12345", "2301.12346"} {
-			if _, err := lookup(context.Background(), id); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if elapsed := starts[1].Sub(starts[0]); elapsed < interval {
-			t.Fatalf("requests only %s apart, want at least %s", elapsed, interval)
-		}
-	})
-	t.Run("cancellation during wait", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		calls := 0
-		lookup := paceArXivLookups(func(context.Context, string) (bibliography.Record, error) {
-			calls++
-			return getPreprint(""), nil
-		}, time.Hour)
-		if _, err := lookup(ctx, "2301.12345"); err != nil {
-			t.Fatal(err)
-		}
-		timer := time.AfterFunc(10*time.Millisecond, cancel)
-		defer timer.Stop()
-		if _, err := lookup(ctx, "2301.12346"); !errors.Is(err, context.Canceled) || calls != 1 {
-			t.Fatalf("error=%v calls=%d", err, calls)
-		}
-	})
 }

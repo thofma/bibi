@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"os"
+	"os/signal"
 
 	"github.com/spf13/cobra"
 )
@@ -16,6 +18,9 @@ Genealogy Project. It also finds AMS journal abbreviations offline.`,
 }
 
 func Execute() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	rootCmd.SetContext(ctx)
+	defer stop()
 	if exitCode := commandExitCode(rootCmd); exitCode != 0 {
 		os.Exit(exitCode)
 	}

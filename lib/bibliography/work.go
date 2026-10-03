@@ -59,6 +59,12 @@ type Provider interface {
 	BibTeX(work Work) ([]Record, error)
 }
 
+// ContextProvider supports cancellation during provider lookups. The original
+// Provider interface remains available to library callers and simple adapters.
+type ContextProvider interface {
+	BibTeXContext(context.Context, Work) ([]Record, error)
+}
+
 type Record struct {
 	Work
 	Entry    *bibtex.BibEntry

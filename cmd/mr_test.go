@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -15,7 +16,9 @@ import (
 func useMRQuery(t *testing.T, query func(string, string, string) ([]*mr.Entry, error)) {
 	t.Helper()
 	originalQuery := mrQuery
-	mrQuery = query
+	mrQuery = func(_ context.Context, author, year, title string) ([]*mr.Entry, error) {
+		return query(author, year, title)
+	}
 	t.Cleanup(func() {
 		mrQuery = originalQuery
 	})

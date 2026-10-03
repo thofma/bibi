@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/nickng/bibtex"
 	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/internal/httpclient"
 	"github.com/thofma/bibi/lib/bibliography"
 )
 
@@ -139,13 +139,18 @@ func (backend *Backend) SearchPage(ctx context.Context, query, token string) (bi
 
 // BibTeX requires a DOI and retrieves only Crossref's export, without fallback.
 func (backend *Backend) BibTeX(work bibliography.Work) ([]bibliography.Record, error) {
+	return backend.BibTeXContext(context.Background(), work)
+}
+
+// BibTeXContext retrieves Crossref's export with cancellation support.
+func (backend *Backend) BibTeXContext(ctx context.Context, work bibliography.Work) ([]bibliography.Record, error) {
 	doi, ok := bibliography.DOIQuery(work.DOI)
 	diagnostics.Printf("bib crossref lookup strategy=DOI DOI=%q normalized_DOI=%q", work.DOI, doi)
 	if !ok {
 		diagnostics.Printf("bib crossref stage=lookup failed: selected work has no valid DOI; export was not requested")
 		return nil, fmt.Errorf("Crossref BibTeX requires a DOI for the selected work")
 	}
-	body, found, err := backend.get("/works/"+doi+"/transform", nil, "application/x-bibtex")
+	body, found, err := backend.getContext(ctx, "/works/"+doi+"/transform", nil, "application/x-bibtex")
 	if err != nil {
 		return nil, err
 	}
@@ -220,14 +225,9 @@ func (backend *Backend) getContext(ctx context.Context, path string, values url.
 	if client == nil {
 		client = defaultClient
 	}
-	response, err := diagnostics.Do(client, req)
+	response, body, err := httpclient.Do(client, req, "Crossref")
 	if err != nil {
 		return nil, false, fmt.Errorf("request Crossref: %w", err)
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, false, fmt.Errorf("read Crossref response: %w", err)
 	}
 	if response.StatusCode == http.StatusNotFound && path != "/works" {
 		return nil, false, nil

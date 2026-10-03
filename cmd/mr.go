@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	mrQuery  = mr.MRQueryAYT
+	mrQuery  = mr.MRQueryAYTContext
 	mrChoose = util.RunDetailedChooser
 )
 
@@ -50,7 +50,7 @@ func runMR(cmd *cobra.Command, args []string) error {
 	}
 
 	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Searching MR Lookup...")
-	entries, err := mrQuery(author, year, title)
+	entries, err := mrQuery(spinner.Context(cmd.Context()), author, year, title)
 	spinner.Stop()
 	if err != nil {
 		return fmt.Errorf("query MR Lookup: %w", err)

@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/thofma/bibi/internal/diagnostics"
@@ -23,34 +22,8 @@ type getServices struct {
 func defaultGetServices() getServices {
 	arxivBackend := &arxiv.Backend{}
 	doiBackend := &doi.Backend{}
-	return getServices{arxiv: paceArXivLookups(arxivBackend.Lookup, 3*time.Second), doi: doiBackend.Lookup,
+	return getServices{arxiv: arxivBackend.Lookup, doi: doiBackend.Lookup,
 		doiMetadata: doiBackend.Metadata, bib: defaultSearchServices().bib}
-}
-
-// Batch lookups run sequentially. Space arXiv requests according to its API
-// guidance, allowing cancellation while waiting for the next request.
-func paceArXivLookups(lookup func(context.Context, string) (bibliography.Record, error), interval time.Duration) func(context.Context, string) (bibliography.Record, error) {
-	var next time.Time
-	return func(ctx context.Context, id string) (bibliography.Record, error) {
-		if err := ctx.Err(); err != nil {
-			return bibliography.Record{}, err
-		}
-		if delay := time.Until(next); delay > 0 {
-			timer := time.NewTimer(delay)
-			defer timer.Stop()
-			select {
-			case <-ctx.Done():
-				return bibliography.Record{}, ctx.Err()
-			case <-timer.C:
-			}
-		}
-		if err := ctx.Err(); err != nil {
-			return bibliography.Record{}, err
-		}
-		record, err := lookup(ctx, id)
-		next = time.Now().Add(interval)
-		return record, err
-	}
 }
 
 func newGetCommand(services func() getServices, choose func(util.ChooserRequest) (int, error)) *cobra.Command {
@@ -108,7 +81,7 @@ func retrieveGetCitation(cmd *cobra.Command, identifier bibliography.Identifier,
 	var err error
 	if identifier.Kind == "arxiv" {
 		spinner := util.StartSpinner(cmd.ErrOrStderr(), "Retrieving arXiv metadata...")
-		record, err = backends.arxiv(cmd.Context(), identifier.Value)
+		record, err = backends.arxiv(spinner.Context(cmd.Context()), identifier.Value)
 		spinner.Stop()
 		if err != nil {
 			return bibliography.Record{}, err
@@ -128,11 +101,11 @@ func retrieveGetCitation(cmd *cobra.Command, identifier bibliography.Identifier,
 	if identifier.Kind == "doi" {
 		if bibName == "auto" {
 			spinner := util.StartSpinner(cmd.ErrOrStderr(), "Retrieving DOI BibTeX...")
-			record, err = backends.doi(cmd.Context(), identifier.Value)
+			record, err = backends.doi(spinner.Context(cmd.Context()), identifier.Value)
 			spinner.Stop()
 		} else {
 			spinner := util.StartSpinner(cmd.ErrOrStderr(), "Retrieving DOI metadata...")
-			record.Work, err = backends.doiMetadata(cmd.Context(), identifier.Value)
+			record.Work, err = backends.doiMetadata(spinner.Context(cmd.Context()), identifier.Value)
 			spinner.Stop()
 		}
 		if err != nil {

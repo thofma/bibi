@@ -32,6 +32,7 @@
   - [MR Lookup](#mr-lookup)
   - [Mathematics Genealogy Project](#mathematics-genealogy-project)
   - [BibTeX options](#bibtex-options)
+  - [Network recovery](#network-recovery)
   - [Debugging](#debugging)
 - [Development](#development)
 
@@ -190,7 +191,8 @@ results. Use `n` for the next provider page and `p` for the previous page.
 Search requests enough results to fill the initial terminal height, up to 100 per
 provider page. That page size stays fixed while browsing so resizing does not skip
 results; the selector itself resizes immediately.
-If loading a page fails, press `n` to retry.
+Temporary network failures retry automatically while keeping the current results
+visible. If loading still fails, press `n` to retry the same page.
 
 Press `Tab` to scroll the detail pane with the arrow keys or `PgUp`/`PgDn`, then
 `Tab` to return to the results. Wide terminals show results and details side by
@@ -339,6 +341,26 @@ is unavailable, bibi warns and keeps the original journal name.
 Incomplete entries produce warnings on standard error. The entry is still
 exported or added to the bibliography, and warnings do not change a successful
 command's exit status.
+
+### Network recovery
+
+All lookup commands retry temporary connection failures, timeouts, interrupted
+responses, and HTTP 408, 429, 500, 502, 503, and 504 responses automatically.
+Each request makes at most three attempts, with waits of one and two seconds
+plus up to 250 milliseconds of jitter. An attempt has a 15-second timeout, and
+the entire request, including waits, has a 45-second limit.
+
+Server `Retry-After` instructions can extend the wait. If that wait exceeds the
+request limit, bibi stops and reports when to try again. Later inputs in the same
+batch respect the server's cooldown. arXiv requests, including retries, run one
+at a time with at least three seconds between their starts.
+
+Retry progress appears in the spinner or result picker, or as plain text on
+standard error when output is redirected. Press `Ctrl-C` to cancel a request or
+wait and stop the batch. Otherwise, a batch continues after a failed input and
+returns a nonzero exit status if any input failed. Invalid requests, permanent
+HTTP errors, malformed data, missing records, and license restrictions fail
+without retries. An entry is exported or saved only after a successful lookup.
 
 ### Debugging
 

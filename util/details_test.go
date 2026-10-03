@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
+	"github.com/thofma/bibi/internal/httpclient"
 	"github.com/thofma/bibi/lib/bibliography"
 )
 
@@ -65,12 +66,17 @@ func TestDetailsPagingCachesPagesAndKeepsGlobalIndices(t *testing.T) {
 	if !m.loading || cmd == nil {
 		t.Fatal("next page was not requested")
 	}
+	event := httpclient.Event{Service: "zbMATH Open", Attempt: 2, Delay: time.Second, Reason: "HTTP 503 Service Unavailable"}
+	m, _ = detailUpdate(t, m, retryProgressMsg{event})
+	if !strings.Contains(ansi.Strip(m.View()), "retrying in 1s") || m.pageIndex != 0 || m.list.Index() != 1 {
+		t.Fatalf("retry progress lost the current page or selection: %s", m.View())
+	}
 	blocked, _ := detailUpdate(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if blocked.selected {
 		t.Fatal("selected while loading")
 	}
 	m, _ = detailUpdate(t, m, cmd())
-	if m.pageIndex != 1 || !strings.Contains(m.View(), "Results 3–4") {
+	if m.pageIndex != 1 || !strings.Contains(m.View(), "Results 3–4") || strings.Contains(m.View(), "retrying") {
 		t.Fatalf("wrong second page: %s", m.View())
 	}
 	m, _ = detailUpdate(t, m, detailKey("p"))

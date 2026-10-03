@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"context"
 	"strings"
 
 	"github.com/thofma/bibi/internal/diagnostics"
@@ -11,6 +12,11 @@ import (
 type Provider struct{}
 
 func (Provider) BibTeX(work bibliography.Work) ([]bibliography.Record, error) {
+	return (Provider{}).BibTeXContext(context.Background(), work)
+}
+
+// BibTeXContext searches MR Lookup for candidates with cancellation support.
+func (Provider) BibTeXContext(ctx context.Context, work bibliography.Work) ([]bibliography.Record, error) {
 	author := ""
 	if len(work.Authors) > 0 {
 		author = lookupFamilyName(work.Authors[0])
@@ -18,7 +24,7 @@ func (Provider) BibTeX(work bibliography.Work) ([]bibliography.Record, error) {
 	}
 	diagnostics.Printf("bib mr lookup strategy=author-title-year author=%q title=%q year=%q", author, work.Title, work.Year)
 	diagnostics.Printf("bib mr selected DOI=%q is used to validate candidates; it is not sent to MR Lookup", work.DOI)
-	entries, err := MRQueryAYT(author, work.Year, work.Title)
+	entries, err := MRQueryAYTContext(ctx, author, work.Year, work.Title)
 	if err != nil {
 		return nil, err
 	}

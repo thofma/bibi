@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/internal/httpclient"
 	"github.com/thofma/bibi/lib/bibliography"
 )
 
@@ -156,14 +156,9 @@ func (backend *Backend) get(ctx context.Context, doi, accept string) ([]byte, er
 		client = defaultClient
 	}
 	diagnostics.Printf("doi lookup strategy=content-negotiation DOI=%q format=%q", doi, accept)
-	response, err := diagnostics.Do(client, req)
+	response, body, err := httpclient.Do(client, req, "DOI service")
 	if err != nil {
 		return nil, fmt.Errorf("request DOI resolver: %w", err)
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read DOI response: %w", err)
 	}
 	switch response.StatusCode {
 	case http.StatusNotFound:

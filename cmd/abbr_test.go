@@ -44,7 +44,7 @@ func TestAbbrMultipleMatchesShowJournalMetadata(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	ctx := context.WithValue(context.Background(), struct{}{}, "fixture context")
 	root := debugTestRoot(newAbbrCommand(func(request util.ChooserRequest) (int, error) {
-		if request.Context != ctx || request.Output != &stderr || request.Confirmation || len(request.Choices) <= 1 {
+		if request.Context == nil || request.Context.Value(struct{}{}) != ctx.Value(struct{}{}) || request.Output != &stderr || request.Confirmation || len(request.Choices) <= 1 {
 			t.Fatalf("unexpected chooser request: %+v", request)
 		}
 		if !strings.Contains(request.Title, "theor numbe jour") {

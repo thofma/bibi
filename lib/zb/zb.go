@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/internal/httpclient"
 	"github.com/thofma/bibi/lib/mr"
 )
 
@@ -82,15 +82,9 @@ func getZBURLContext(ctx context.Context, endpoint string, accept string) (strin
 		req.Header.Set("Accept", accept)
 	}
 
-	resp, err := diagnostics.Do(zbHTTPClient, req)
+	resp, body, err := httpclient.Do(zbHTTPClient, req, "zbMATH Open")
 	if err != nil {
 		return "", fmt.Errorf("request zbMath: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read zbMath response: %w", err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return "", &zbHTTPError{
@@ -105,12 +99,17 @@ func getZBURLContext(ctx context.Context, endpoint string, accept string) (strin
 
 // Search retrieves and decodes a zbMath response for the supplied query.
 func Search(search string) (Response, error) {
+	return SearchContext(context.Background(), search)
+}
+
+// SearchContext searches zbMATH with cancellation support.
+func SearchContext(ctx context.Context, search string) (Response, error) {
 	search = strings.TrimSpace(search)
 	if search == "" {
 		return Response{}, fmt.Errorf("zbMath search query cannot be empty")
 	}
 
-	body, err := getZBResponseAnything(search)
+	body, err := getZBAPIContext(ctx, "_search", url.Values{"search_string": {search}, "results_per_page": {strconv.Itoa(MaxSearchResults)}})
 	if err != nil {
 		if response, ok := zbNoResultsResponse(err); ok {
 			return response, nil
@@ -127,10 +126,15 @@ func Search(search string) (Response, error) {
 
 // SearchDOI resolves a DOI through zbMATH's structured search.
 func SearchDOI(doi string) (Response, error) {
+	return SearchDOIContext(context.Background(), doi)
+}
+
+// SearchDOIContext resolves a DOI with cancellation support.
+func SearchDOIContext(ctx context.Context, doi string) (Response, error) {
 	if strings.TrimSpace(doi) == "" {
 		return Response{}, fmt.Errorf("zbMath DOI cannot be empty")
 	}
-	body, err := getZBResponse(doi)
+	body, err := getZBAPIContext(ctx, "_structured_search", url.Values{"page": {"0"}, "results_per_page": {"1"}, "DOI": {doi}})
 	if err != nil {
 		if response, ok := zbNoResultsResponse(err); ok {
 			return response, nil

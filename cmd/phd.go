@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	phdQuery     = phd.MGPQueryAndResponse
-	phdGetBibTeX = phd.MGPEntryGetBibtex
+	phdQuery     = phd.MGPQueryAndResponseContext
+	phdGetBibTeX = phd.MGPEntryGetBibtexContext
 	phdChoose    = util.RunDetailedChooser
 )
 
@@ -40,7 +40,7 @@ func runPhD(cmd *cobra.Command, args []string) error {
 	}
 
 	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Searching Mathematics Genealogy Project...")
-	entries, err := phdQuery(name)
+	entries, err := phdQuery(spinner.Context(cmd.Context()), name)
 	spinner.Stop()
 	if err != nil {
 		return fmt.Errorf("query Mathematics Genealogy Project: %w", err)
@@ -71,7 +71,9 @@ func runPhD(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	bib, err := phdGetBibTeX(entries[selected])
+	spinner = util.StartSpinner(cmd.ErrOrStderr(), "Retrieving Mathematics Genealogy Project thesis...")
+	bib, err := phdGetBibTeX(spinner.Context(cmd.Context()), entries[selected])
+	spinner.Stop()
 	if err != nil {
 		return fmt.Errorf("create thesis BibTeX: %w", err)
 	}

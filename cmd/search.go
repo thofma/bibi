@@ -124,11 +124,12 @@ func retrieveCitation(cmd *cobra.Command, query string, services func() searchSe
 	}
 
 	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Searching "+serviceDisplayName(discoveryName)+"...")
+	requestContext := spinner.Context(cmd.Context())
 	var page bibliography.SearchPage
 	var err error
 	paged, canPage := discoverer.(bibliography.PagedDiscoverer)
 	if canPage {
-		page, err = paged.SearchPage(cmd.Context(), query, "")
+		page, err = paged.SearchPage(requestContext, query, "")
 	} else {
 		page.Works, err = discoverer.Search(query)
 	}
@@ -188,7 +189,13 @@ func retrieveCitation(cmd *cobra.Command, query string, services func() searchSe
 func retrieveProviderCitation(cmd *cobra.Command, work bibliography.Work, bibName string, provider bibliography.Provider, choose func(util.ChooserRequest) (int, error)) (bibliography.Record, error) {
 	diagnostics.Printf("bib provider=%s stage=retrieval started: title=%q authors=%q year=%q DOI=%q normalized_DOI=%q IDs=%v", bibName, work.Title, work.Authors, work.Year, work.DOI, bibliography.NormalizeDOI(work.DOI), work.IDs)
 	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Retrieving "+serviceDisplayName(bibName)+" BibTeX...")
-	records, err := provider.BibTeX(work)
+	var records []bibliography.Record
+	var err error
+	if contextual, ok := provider.(bibliography.ContextProvider); ok {
+		records, err = contextual.BibTeXContext(spinner.Context(cmd.Context()), work)
+	} else {
+		records, err = provider.BibTeX(work)
+	}
 	spinner.Stop()
 	if contextErr := cmd.Context().Err(); contextErr != nil {
 		return bibliography.Record{}, contextErr

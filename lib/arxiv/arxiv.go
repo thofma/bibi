@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/nickng/bibtex"
 	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/internal/httpclient"
 	"github.com/thofma/bibi/lib/bibliography"
 )
 
@@ -73,14 +73,9 @@ func (backend *Backend) Lookup(ctx context.Context, query string) (bibliography.
 		client = defaultClient
 	}
 	diagnostics.Printf("arxiv lookup strategy=identifier id=%q", id)
-	response, err := diagnostics.Do(client, req)
+	response, body, err := httpclient.Do(client, req, "arXiv")
 	if err != nil {
 		return bibliography.Record{}, fmt.Errorf("request arXiv: %w", err)
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return bibliography.Record{}, fmt.Errorf("read arXiv response: %w", err)
 	}
 	if response.StatusCode == http.StatusNotFound {
 		return bibliography.Record{}, fmt.Errorf("arXiv identifier %q not found", id)

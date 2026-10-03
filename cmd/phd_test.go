@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ import (
 func usePhDQuery(t *testing.T, query func(string) ([]phd.MGPEntry, error)) {
 	t.Helper()
 	originalQuery := phdQuery
-	phdQuery = query
+	phdQuery = func(_ context.Context, name string) ([]phd.MGPEntry, error) { return query(name) }
 	t.Cleanup(func() {
 		phdQuery = originalQuery
 	})
@@ -24,7 +25,7 @@ func usePhDQuery(t *testing.T, query func(string) ([]phd.MGPEntry, error)) {
 func usePhDGetBibTeX(t *testing.T, getBibTeX func(phd.MGPEntry) (*bibtex.BibEntry, error)) {
 	t.Helper()
 	originalGetBibTeX := phdGetBibTeX
-	phdGetBibTeX = getBibTeX
+	phdGetBibTeX = func(_ context.Context, entry phd.MGPEntry) (*bibtex.BibEntry, error) { return getBibTeX(entry) }
 	t.Cleanup(func() {
 		phdGetBibTeX = originalGetBibTeX
 	})

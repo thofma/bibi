@@ -1,9 +1,9 @@
 package phd
 
 import (
+	"context"
 	"fmt"
 	"html"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -13,7 +13,7 @@ import (
 	"unicode"
 
 	"github.com/nickng/bibtex"
-	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/internal/httpclient"
 	"github.com/thofma/bibi/lib/bibliography"
 )
 
@@ -49,12 +49,17 @@ type MGPEntry struct {
 
 // MGPQuery retrieves the raw MGP search response for author.
 func MGPQuery(author string) (string, error) {
+	return MGPQueryContext(context.Background(), author)
+}
+
+// MGPQueryContext retrieves the raw search response with cancellation support.
+func MGPQueryContext(ctx context.Context, author string) (string, error) {
 	author = strings.TrimSpace(author)
 	if author == "" {
 		return "", fmt.Errorf("MGP search terms are required")
 	}
 
-	return mgpGet(mgpSearchURL, url.Values{
+	return mgpGetContext(ctx, mgpSearchURL, url.Values{
 		"searchTerms": {author},
 		"Submit":      {"Search"},
 	})
@@ -62,7 +67,12 @@ func MGPQuery(author string) (string, error) {
 
 // MGPQueryAndResponse retrieves and parses MGP search results.
 func MGPQueryAndResponse(author string) ([]MGPEntry, error) {
-	response, err := MGPQuery(author)
+	return MGPQueryAndResponseContext(context.Background(), author)
+}
+
+// MGPQueryAndResponseContext retrieves and parses results with cancellation support.
+func MGPQueryAndResponseContext(ctx context.Context, author string) ([]MGPEntry, error) {
+	response, err := MGPQueryContext(ctx, author)
 	if err != nil {
 		return nil, err
 	}
@@ -163,6 +173,14 @@ func MGPEntryGetFromSingleHit(text string) (MGPEntry, error) {
 
 // MGPEntryGetBibtex retrieves a result page when necessary and creates its BibTeX entry.
 func MGPEntryGetBibtex(entry MGPEntry) (*bibtex.BibEntry, error) {
+	return MGPEntryGetBibtexContext(context.Background(), entry)
+}
+
+// MGPEntryGetBibtexContext retrieves a result and creates BibTeX with cancellation support.
+func MGPEntryGetBibtexContext(ctx context.Context, entry MGPEntry) (*bibtex.BibEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if entry.BibTeX != nil {
 		return entry.BibTeX, nil
 	}
@@ -172,7 +190,7 @@ func MGPEntryGetBibtex(entry MGPEntry) (*bibtex.BibEntry, error) {
 		return nil, fmt.Errorf("MGP result has no id")
 	}
 
-	text, err := mgpGet(mgpEntryURL, url.Values{"id": {id}})
+	text, err := mgpGetContext(ctx, mgpEntryURL, url.Values{"id": {id}})
 	if err != nil {
 		return nil, fmt.Errorf("retrieve MGP result %q: %w", id, err)
 	}
@@ -185,6 +203,10 @@ func MGPEntryGetBibtex(entry MGPEntry) (*bibtex.BibEntry, error) {
 }
 
 func mgpGet(baseURL string, values url.Values) (string, error) {
+	return mgpGetContext(context.Background(), baseURL, values)
+}
+
+func mgpGetContext(ctx context.Context, baseURL string, values url.Values) (string, error) {
 	endpoint, err := url.Parse(baseURL)
 	if err != nil {
 		return "", fmt.Errorf("parse MGP URL: %w", err)
@@ -198,19 +220,13 @@ func mgpGet(baseURL string, values url.Values) (string, error) {
 	}
 	endpoint.RawQuery = query.Encode()
 
-	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return "", fmt.Errorf("create MGP request: %w", err)
 	}
-	resp, err := diagnostics.Do(mgpHTTPClient, req)
+	resp, body, err := httpclient.Do(mgpHTTPClient, req, "Mathematics Genealogy Project")
 	if err != nil {
 		return "", fmt.Errorf("request MGP: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read MGP response: %w", err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return "", fmt.Errorf("MGP returned %s: %s", resp.Status, strings.TrimSpace(string(body)))

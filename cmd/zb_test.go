@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ import (
 func useZBSearch(t *testing.T, search func(string) (zb.Response, error)) {
 	t.Helper()
 	originalSearch := zbSearch
-	zbSearch = search
+	zbSearch = func(_ context.Context, query string) (zb.Response, error) { return search(query) }
 	t.Cleanup(func() {
 		zbSearch = originalSearch
 	})

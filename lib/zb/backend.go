@@ -91,6 +91,14 @@ func (backend *Backend) SearchPage(ctx context.Context, query, token string) (bi
 }
 
 func (backend *Backend) BibTeX(work bibliography.Work) ([]bibliography.Record, error) {
+	return backend.BibTeXContext(context.Background(), work)
+}
+
+// BibTeXContext retrieves provider candidates with cancellation support.
+func (backend *Backend) BibTeXContext(ctx context.Context, work bibliography.Work) ([]bibliography.Record, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if id := work.IDs["zb"]; id != "" {
 		for _, item := range backend.items {
 			if strconv.Itoa(item.ID) == id {
@@ -109,10 +117,10 @@ func (backend *Backend) BibTeX(work bibliography.Work) ([]bibliography.Record, e
 	var err error
 	if work.DOI != "" {
 		diagnostics.Printf("bib zb lookup strategy=DOI DOI=%q normalized_DOI=%q", work.DOI, bibliography.NormalizeDOI(work.DOI))
-		response, err = SearchDOI(bibliography.NormalizeDOI(work.DOI))
+		response, err = SearchDOIContext(ctx, bibliography.NormalizeDOI(work.DOI))
 	} else {
 		diagnostics.Printf("bib zb lookup strategy=metadata query=%q (selected work has no DOI)", work.Query())
-		response, err = Search(work.Query())
+		response, err = SearchContext(ctx, work.Query())
 	}
 	if err != nil {
 		return nil, err

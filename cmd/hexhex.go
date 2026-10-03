@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	zbSearch = zb.Search
+	zbSearch = zb.SearchContext
 	zbChoose = util.RunDetailedChooser
 )
 
@@ -48,7 +48,7 @@ func runZB(cmd *cobra.Command, args []string) error {
 	}
 
 	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Searching zbMATH Open...")
-	response, err := zbSearch(query)
+	response, err := zbSearch(spinner.Context(cmd.Context()), query)
 	spinner.Stop()
 	if err != nil {
 		return fmt.Errorf("search zbMATH: %w", err)

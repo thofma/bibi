@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
+	"github.com/thofma/bibi/internal/httpclient"
 )
 
 // Choice keeps a compact result label separate from its complete metadata.
@@ -110,6 +111,8 @@ type loadedPageMsg struct {
 	err  error
 }
 
+type retryProgressMsg struct{ event httpclient.Event }
+
 type detailsModel struct {
 	request       ChooserRequest
 	pages         []cachedPage
@@ -125,6 +128,7 @@ type detailsModel struct {
 	theme         chooserTheme
 	loading       bool
 	loadError     error
+	loadStatus    string
 	choiceIndex   int
 	selected      bool
 	quitting      bool
@@ -209,6 +213,7 @@ func (m detailsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case loadedPageMsg:
 		m.loading = false
+		m.loadStatus = ""
 		m.loadError = msg.err
 		if msg.err != nil {
 			return m, nil
@@ -224,6 +229,11 @@ func (m detailsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		last := m.pages[len(m.pages)-1]
 		m.pages = append(m.pages, cachedPage{choices: msg.page.Choices, offset: last.offset + len(last.choices)})
 		m.showPage(len(m.pages) - 1)
+		return m, nil
+	case retryProgressMsg:
+		if m.loading {
+			m.loadStatus = msg.event.String()
+		}
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -257,7 +267,7 @@ func (m detailsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.nextToken != "" && m.request.LoadPage != nil {
-				m.loading, m.loadError = true, nil
+				m.loading, m.loadError, m.loadStatus = true, nil, ""
 				ctx, token, load := m.request.Context, m.nextToken, m.request.LoadPage
 				if ctx == nil {
 					ctx = context.Background()
@@ -345,7 +355,11 @@ func (m detailsModel) View() string {
 		pages += m.theme.shortcut("n", "next page")
 	}
 	if m.loading {
-		pages = m.theme.accent.Render("◌ Loading next page…") + "  " + m.theme.shortcut("q", "cancel")
+		message := "◌ Loading next page…"
+		if m.loadStatus != "" {
+			message = displayText(m.loadStatus)
+		}
+		pages = m.theme.accent.Render(message) + "  " + m.theme.shortcut("q", "cancel")
 	} else if m.loadError != nil {
 		pages = m.theme.shortcut("n", "retry") + " · " + m.theme.warm.Render("Page failed: "+displayText(m.loadError.Error()))
 	}
@@ -382,7 +396,10 @@ func runDetailedChooser(request ChooserRequest, openInput func() (io.ReadCloser,
 	if output == nil {
 		output = os.Stderr
 	}
-	program := tea.NewProgram(newDetailsModel(request), tea.WithInput(input), tea.WithOutput(output), tea.WithContext(ctx), tea.WithAltScreen())
+	var program *tea.Program
+	ctx = httpclient.WithObserver(ctx, func(event httpclient.Event) { program.Send(retryProgressMsg{event}) })
+	request.Context = ctx
+	program = tea.NewProgram(newDetailsModel(request), tea.WithInput(input), tea.WithOutput(output), tea.WithContext(ctx), tea.WithAltScreen())
 	final, err := program.Run()
 	if err != nil {
 		return -1, fmt.Errorf("run chooser: %w", err)

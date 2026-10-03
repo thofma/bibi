@@ -1,9 +1,9 @@
 package mr
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/nickng/bibtex"
 	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/internal/httpclient"
 	"github.com/thofma/bibi/lib/bibliography"
 )
 
@@ -45,7 +46,12 @@ type Entry struct {
 
 // MRQueryAYT queries MR Lookup by author, year, and title.
 func MRQueryAYT(author, year, title string) ([]*Entry, error) {
-	responses, err := mrMultiResponseFromAYT(author, year, title)
+	return MRQueryAYTContext(context.Background(), author, year, title)
+}
+
+// MRQueryAYTContext queries MR Lookup with cancellation support.
+func MRQueryAYTContext(ctx context.Context, author, year, title string) ([]*Entry, error) {
+	responses, err := mrMultiResponseFromAYTContext(ctx, author, year, title)
 	if err != nil {
 		return nil, err
 	}
@@ -81,6 +87,10 @@ func MRQueryAYT(author, year, title string) ([]*Entry, error) {
 }
 
 func mrMultiResponseFromAYT(author, year, title string) ([]string, error) {
+	return mrMultiResponseFromAYTContext(context.Background(), author, year, title)
+}
+
+func mrMultiResponseFromAYTContext(ctx context.Context, author, year, title string) ([]string, error) {
 	author, err := fixName(author)
 	if err != nil {
 		return nil, err
@@ -99,20 +109,14 @@ func mrMultiResponseFromAYT(author, year, title string) ([]string, error) {
 	query.Set("title", title)
 	endpoint.RawQuery = query.Encode()
 
-	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create MR Lookup request: %w", err)
 	}
 
-	resp, err := diagnostics.Do(mrHTTPClient, req)
+	resp, body, err := httpclient.Do(mrHTTPClient, req, "MR Lookup")
 	if err != nil {
 		return nil, fmt.Errorf("request MR Lookup: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read MR Lookup response: %w", err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("MR Lookup returned %s: %s", resp.Status, strings.TrimSpace(string(body)))

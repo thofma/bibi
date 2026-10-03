@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/internal/httpclient"
 )
 
 func addDebugFlag(command *cobra.Command) {
@@ -20,6 +22,13 @@ func withDebug(run func(*cobra.Command, []string) error) func(*cobra.Command, []
 		}
 		restore := diagnostics.SetOutput(writer)
 		defer restore()
+		previousContext := command.Context()
+		command.SetContext(httpclient.WithObserver(httpclient.WithSession(previousContext), func(event httpclient.Event) {
+			if !enabled {
+				_, _ = fmt.Fprintln(command.ErrOrStderr(), event.String())
+			}
+		}))
+		defer command.SetContext(previousContext)
 
 		diagnostics.Printf("command=%s args=%q", command.CommandPath(), args)
 		start := time.Now()

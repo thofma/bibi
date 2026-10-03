@@ -50,7 +50,9 @@ func TestGetZBResponseAnythingBuildsRequest(t *testing.T) {
 }
 
 func TestGetZBResponseAnythingReturnsHTTPError(t *testing.T) {
+	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
 		http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
@@ -60,8 +62,8 @@ func TestGetZBResponseAnythingReturnsHTTPError(t *testing.T) {
 	if err == nil {
 		t.Fatal("getZBResponseAnything() error = nil, want HTTP status error")
 	}
-	if !strings.Contains(err.Error(), "503 Service Unavailable") || !strings.Contains(err.Error(), "temporarily unavailable") {
-		t.Errorf("getZBResponseAnything() error = %q, want status and response body", err)
+	if !strings.Contains(err.Error(), "503 Service Unavailable") || !strings.Contains(err.Error(), "3 attempts") || calls != 3 {
+		t.Errorf("getZBResponseAnything() error = %q, calls=%d; want status and three attempts", err, calls)
 	}
 }
 

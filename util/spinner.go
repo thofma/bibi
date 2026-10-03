@@ -1,6 +1,7 @@
 package util
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/internal/httpclient"
 )
 
 const spinnerInterval = 100 * time.Millisecond
@@ -21,6 +23,8 @@ type Spinner struct {
 	stop    chan struct{}
 	done    chan struct{}
 	once    sync.Once
+	mu      sync.Mutex
+	stopped bool
 }
 
 // StartSpinner starts a terminal-only spinner. It does nothing for redirected
@@ -63,6 +67,9 @@ func (spinner *Spinner) Stop() {
 		return
 	}
 	spinner.once.Do(func() {
+		spinner.mu.Lock()
+		spinner.stopped = true
+		spinner.mu.Unlock()
 		if spinner.stop == nil {
 			return
 		}
@@ -72,8 +79,30 @@ func (spinner *Spinner) Stop() {
 	})
 }
 
+// Context directs retry progress to this spinner, or plain stderr when the
+// spinner is disabled. Debug tracing already reports each retry separately.
+func (spinner *Spinner) Context(ctx context.Context) context.Context {
+	return httpclient.WithObserver(ctx, func(event httpclient.Event) {
+		if diagnostics.Enabled() {
+			return
+		}
+		spinner.mu.Lock()
+		defer spinner.mu.Unlock()
+		if spinner.stopped {
+			return
+		}
+		if spinner.stop != nil {
+			spinner.message = event.String()
+		} else if spinner.writer != nil {
+			_, _ = fmt.Fprintln(spinner.writer, event.String())
+		}
+	})
+}
+
 func (spinner *Spinner) render(frame int) {
-	_, _ = fmt.Fprintf(spinner.writer, "\r%s %s", spinnerFrames[frame], spinner.message)
+	spinner.mu.Lock()
+	defer spinner.mu.Unlock()
+	_, _ = fmt.Fprintf(spinner.writer, "\r\033[2K%s %s", spinnerFrames[frame], spinner.message)
 }
 
 func isTerminal(writer io.Writer) bool {
