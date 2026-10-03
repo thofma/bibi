@@ -9,9 +9,9 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "bibi",
 	Short: "Retrieve BibTeX for mathematical literature",
-	Long: `bibi is a command line tool to retrieve bibliographic information
-for literature in mathematics using MR Lookup, zbMATH Open, Crossref, and the
-Mathematics Genealogy Project.`,
+	Long: `bibi retrieves BibTeX for DOIs and arXiv identifiers directly, and searches
+mathematical literature using MR Lookup, zbMATH Open, Crossref, and the Mathematics
+Genealogy Project.`,
 	SilenceUsage: true,
 }
 

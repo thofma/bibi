@@ -136,7 +136,7 @@ func (backend *Backend) BibTeX(work bibliography.Work) ([]bibliography.Record, e
 	}
 	diagnostics.Printf("bib crossref stage=parse started: export_bytes=%d", len(body))
 	diagnostics.Preview("Crossref BibTeX export", string(body))
-	parsed, err := parseBibTeX(body)
+	parsed, err := bibliography.ParseBibTeX(body)
 	if err != nil {
 		diagnostics.Printf("bib crossref stage=parse failed: %v", err)
 		return nil, fmt.Errorf("parse Crossref BibTeX: %w", err)
@@ -173,18 +173,6 @@ func (backend *Backend) rememberJournals(item item) {
 		names.Short = bibliography.EscapeTeXText(item.ShortContainer[0])
 	}
 	backend.journals[bibliography.NormalizeDOI(item.DOI)] = names
-}
-
-func parseBibTeX(body []byte) (*bibtex.BibTex, error) {
-	// Crossref emits capitalized month macros (e.g. Dec). The parser's built-in
-	// month names are case sensitive, so define aliases without changing fields.
-	var source strings.Builder
-	for _, month := range []string{"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"} {
-		capitalized := strings.ToUpper(month[:1]) + month[1:]
-		fmt.Fprintf(&source, "@string{%s = %s}\n@string{%s = %s}\n", capitalized, month, strings.ToUpper(month), month)
-	}
-	source.Write(body)
-	return bibtex.Parse(strings.NewReader(source.String()))
 }
 
 func (backend *Backend) get(path string, values url.Values, accept string) ([]byte, bool, error) {

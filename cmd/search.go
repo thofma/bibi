@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -20,6 +21,8 @@ type searchServices struct {
 	discovery map[string]bibliography.Discoverer
 	bib       map[string]bibliography.Provider
 }
+
+var errSelectionCancelled = errors.New("selection cancelled")
 
 func defaultSearchServices() searchServices {
 	zbBackend := &zb.Backend{}
@@ -160,10 +163,19 @@ func retrieveCitation(cmd *cobra.Command, query string, services func() searchSe
 	work := works[selected]
 	worksMu.Unlock()
 	diagnostics.Printf("selected discovery result %d: %q DOI=%q IDs=%v", selected+1, work.Label(), work.DOI, work.IDs)
+	return retrieveProviderCitation(cmd, work, bibName, provider, choose)
+}
+
+// retrieveProviderCitation matches and confirms exports from one explicitly
+// selected provider, for either a discovered work or an exact identifier lookup.
+func retrieveProviderCitation(cmd *cobra.Command, work bibliography.Work, bibName string, provider bibliography.Provider, choose func(util.ChooserRequest) (int, error)) (bibliography.Record, error) {
 	diagnostics.Printf("bib provider=%s stage=retrieval started: title=%q authors=%q year=%q DOI=%q normalized_DOI=%q IDs=%v", bibName, work.Title, work.Authors, work.Year, work.DOI, bibliography.NormalizeDOI(work.DOI), work.IDs)
-	spinner = util.StartSpinner(cmd.ErrOrStderr(), "Retrieving "+bibName+" BibTeX...")
+	spinner := util.StartSpinner(cmd.ErrOrStderr(), "Retrieving "+bibName+" BibTeX...")
 	records, err := provider.BibTeX(work)
 	spinner.Stop()
+	if contextErr := cmd.Context().Err(); contextErr != nil {
+		return bibliography.Record{}, contextErr
+	}
 	if err != nil {
 		diagnostics.Printf("bib provider=%s stage=retrieval failed: %v", bibName, err)
 		return bibliography.Record{}, fmt.Errorf("retrieve %s BibTeX: %w", bibName, err)
@@ -190,7 +202,7 @@ func retrieveCitation(cmd *cobra.Command, query string, services func() searchSe
 			diagnostics.Printf("candidate %s: rejected, %s", record.Entry.CiteName, bibliography.MatchReason(work, record.Work, bibName))
 		}
 	}
-	selected = 0
+	selected := 0
 	diagnostics.Printf("bib provider=%s stage=matching exact=%d compatible=%d rejected=%d", bibName, len(exact), len(compatible), rejected)
 	if len(exact) > 0 {
 		records = exact
@@ -251,7 +263,7 @@ func selectSearchResult(request util.ChooserRequest, choose func(util.ChooserReq
 		return 0, err
 	}
 	if selected < 0 {
-		return 0, fmt.Errorf("selection cancelled")
+		return 0, errSelectionCancelled
 	}
 	return selected, nil
 }

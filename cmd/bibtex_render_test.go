@@ -2,6 +2,10 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/thofma/bibi/lib/arxiv"
 	"github.com/thofma/bibi/lib/bibliography"
 	"github.com/thofma/bibi/lib/phd"
 	"github.com/thofma/bibi/lib/zb"
@@ -51,6 +56,23 @@ func TestBibTeXRendering(t *testing.T) {
 	if err := writeBibTeX(command, thesis, bibliography.JournalNames{}); err != nil {
 		t.Fatal(err)
 	}
+	arxivServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `<feed xmlns="http://www.w3.org/2005/Atom"><entry>
+<id>https://arxiv.org/abs/0704.0001v2</id>
+<title>ArXiv ABC, Galois groups &amp; \(GL_2\)</title>
+<author><name>Brinch Hansen, Per</name></author>
+<published>2007-04-15T12:00:00Z</published>
+</entry></feed>`)
+	}))
+	defer arxivServer.Close()
+	arxivBackend := &arxiv.Backend{BaseURL: arxivServer.URL, HTTPClient: arxivServer.Client()}
+	preprint, err := arxivBackend.Lookup(context.Background(), "0704.0001v2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBibTeX(command, preprint.Entry, preprint.Journals); err != nil {
+		t.Fatal(err)
+	}
 	if warnings.Len() != 0 {
 		t.Fatalf("complete entries produced warnings: %s", warnings.String())
 	}
@@ -82,7 +104,7 @@ func TestBibTeXRendering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`Galois groups of \(GL_2(K)\) \& 100\% results`, `\LaTeX and Galois theory`, `Brinch~Hansen`, `G{\"o}del`, `Léo`, `Algebra \& Number Theory`, `School of Algebra \& Geometry`} {
+	for _, want := range []string{`Galois groups of \(GL_2(K)\) \& 100\% results`, `\LaTeX and Galois theory`, `Brinch~Hansen`, `G{\"o}del`, `Léo`, `Algebra \& Number Theory`, `School of Algebra \& Geometry`, `ArXiv ABC, Galois groups \& \(GL_2\)`, `arXiv preprint arXiv:0704.0001v2`} {
 		if !strings.Contains(string(bbl), want) {
 			t.Errorf("typeset bibliography is missing %q:\n%s", want, bbl)
 		}

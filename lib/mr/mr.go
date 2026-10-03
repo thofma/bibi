@@ -1,7 +1,6 @@
 package mr
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/nickng/bibtex"
 	"github.com/thofma/bibi/internal/diagnostics"
+	"github.com/thofma/bibi/lib/bibliography"
 )
 
 const (
@@ -54,7 +54,7 @@ func MRQueryAYT(author, year, title string) ([]*Entry, error) {
 	for i, response := range responses {
 		diagnostics.Printf("MR stage=parse result=%d", i+1)
 		diagnostics.Preview(fmt.Sprintf("MR BibTeX result %d", i+1), response)
-		parsed, err := bibtex.Parse(bytes.NewReader([]byte(response)))
+		parsed, err := bibliography.ParseBibTeX([]byte(response))
 		if err != nil {
 			diagnostics.Printf("MR stage=parse failed result=%d: %v", i+1, err)
 			return nil, fmt.Errorf("parse MR BibTeX result %d: %w", i+1, err)
