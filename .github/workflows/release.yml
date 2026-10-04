@@ -77,11 +77,25 @@ jobs:
           go run ./tools/release formula dist "$(git rev-parse HEAD)"
           test -s dist/bibi.rb
           gh release upload "$RELEASE_TAG" dist/bibi.rb --clobber
+      # Draft assets require write access. Download them here so the test jobs
+      # can inspect the uploaded packages with read-only tokens.
+      - name: Download uploaded draft assets for validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-packages
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: release-packages
+          path: release-packages/*
+          if-no-files-found: error
+          overwrite: true
 
   smoke:
     needs: draft
     uses: ./.github/workflows/smoke.yml
     with:
+      artifact: release-packages
       tag: ${{ needs.draft.outputs.tag }}
       commit: ${{ needs.draft.outputs.commit }}
 
@@ -89,6 +103,7 @@ jobs:
     needs: draft
     uses: ./.github/workflows/homebrew-test.yml
     with:
+      artifact: release-packages
       tag: ${{ needs.draft.outputs.tag }}
       commit: ${{ needs.draft.outputs.commit }}
 
