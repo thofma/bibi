@@ -31,6 +31,18 @@ def check_update(previous, current, tag):
     return True
 
 
+def write_deploy_key(path, value):
+    # Clipboard copies may omit the final newline or use Windows line endings.
+    # OpenSSH requires a complete key with Unix line endings.
+    path.touch(mode=0o600)
+    path.write_text(value.replace("\r\n", "\n").strip() + "\n")
+    result = subprocess.run(["ssh-keygen", "-y", "-P", "", "-f", str(path)],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE, timeout=10)
+    if result.returncode:
+        raise ValueError("HOMEBREW_TAP_SSH_KEY must contain the complete, unencrypted private key")
+
+
 def publish(path, tag, tap):
     formula = validate(path, tag, tap)
     private_key = os.environ.get("HOMEBREW_TAP_SSH_KEY", "")
@@ -38,6 +50,8 @@ def publish(path, tag, tap):
         raise ValueError("Configure HOMEBREW_TAP_SSH_KEY with a write-enabled deploy key for the tap")
     with tempfile.TemporaryDirectory(prefix="bibi-publish-") as directory:
         temp = Path(directory)
+        key = temp / "deploy-key"
+        write_deploy_key(key, private_key)
         repository = temp / "tap"
         subprocess.run(["git", "clone", "--depth=1", f"https://github.com/{tap}.git", str(repository)], check=True)
         destination = repository / "Formula/bibi.rb"
@@ -52,9 +66,6 @@ def publish(path, tag, tap):
         subprocess.run(["git", "-C", str(repository), "-c", "user.name=github-actions[bot]",
                         "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com",
                         "commit", "-m", f"Update bibi to {tag}"], check=True)
-        key = temp / "deploy-key"
-        key.touch(mode=0o600)
-        key.write_text(private_key)
         # Read GitHub's official SSH host keys over authenticated HTTPS.
         metadata = json.loads(subprocess.check_output(["gh", "api", "meta"], text=True))
         hosts = temp / "known_hosts"

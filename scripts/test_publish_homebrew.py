@@ -35,6 +35,31 @@ class PublishHomebrewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             publisher.check_update(newer, self.current, "v0.5.0")
 
+    def test_copied_keys_can_be_read_by_openssh(self):
+        source = Path(self.directory.name) / "source-key"
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(source)], check=True)
+        original = source.read_text()
+        destination = Path(self.directory.name) / "deploy-key"
+        for value in (original.rstrip("\n"), original.replace("\n", "\r\n")):
+            with self.subTest(line_endings="CRLF" if "\r" in value else "missing final newline"):
+                publisher.write_deploy_key(destination, value)
+                self.assertEqual(destination.read_text(), original)
+                self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
+
+    def test_invalid_key_fails_before_contacting_github(self):
+        run = subprocess.run
+
+        def local_validation(args, **kwargs):
+            self.assertEqual(args[0], "ssh-keygen", "Invalid keys must fail before any network request")
+            return run(args, **kwargs)
+
+        with patch.dict(os.environ, {"HOMEBREW_TAP_SSH_KEY": "not a private key"}), \
+                patch.object(publisher.subprocess, "run", side_effect=local_validation), \
+                patch.object(publisher.subprocess, "check_output") as call:
+            with self.assertRaisesRegex(ValueError, "complete, unencrypted private key"):
+                publisher.publish(self.formula, "v0.5.0", "thofma/homebrew-tap")
+            call.assert_not_called()
+
     def test_update_pushes_to_default_branch_without_force(self):
         pushes = []
 
