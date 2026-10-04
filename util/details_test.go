@@ -51,6 +51,87 @@ func TestDetailsFollowHighlightAndScrollWithoutChangingSelection(t *testing.T) {
 	}
 }
 
+func TestChooserSelectionActions(t *testing.T) {
+	for _, test := range []struct {
+		name, keys string
+		enabled    bool
+		selected   int
+		calls      int
+	}{
+		{"alternate selection", "m", true, 0, 1},
+		{"alternate selection from details", "\x1b[B\tm", true, 1, 1},
+		{"Enter keeps default action", "\r", true, 0, 0},
+		{"cancel skips action", "q", true, -1, 0},
+		{"disabled key is ignored", "m\r", false, 0, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			calls := 0
+			request := ChooserRequest{Context: ctx, Output: io.Discard,
+				ChoicePage: ChoicePage{Choices: []Choice{{Label: "First"}, {Label: "Second"}}}}
+			if test.enabled {
+				request.Actions = []ChooserAction{{Key: "m", Label: "MR BibTeX", OnSelect: func() { calls++ }}}
+			}
+			input := &trackedChooserInput{Reader: strings.NewReader(test.keys)}
+			selected, err := runDetailedChooser(request, func() (io.ReadCloser, error) { return input, nil })
+			if err != nil || selected != test.selected || calls != test.calls || !input.closed {
+				t.Fatalf("selection=%d calls=%d closed=%t error=%v", selected, calls, input.closed, err)
+			}
+		})
+	}
+}
+
+func TestDetailsSelectionActionUsesLaterPageHighlight(t *testing.T) {
+	calls := 0
+	m := newDetailsModel(ChooserRequest{
+		ChoicePage: ChoicePage{Choices: []Choice{{Label: "First"}, {Label: "Second"}}, NextToken: "next"},
+		Actions:    []ChooserAction{{Key: "m", Label: "MR BibTeX", OnSelect: func() { calls++ }}},
+		LoadPage: func(context.Context, string) (ChoicePage, error) {
+			return ChoicePage{Choices: []Choice{{Label: "Third"}, {Label: "Fourth"}}}, nil
+		},
+	})
+	m, load := detailUpdate(t, m, detailKey("n"))
+	blocked, command := detailUpdate(t, m, detailKey("m"))
+	if blocked.selected || command != nil || strings.Contains(ansi.Strip(blocked.View()), "MR BibTeX") {
+		t.Fatal("alternate selection was available while loading")
+	}
+	m, _ = detailUpdate(t, m, load())
+	m, _ = detailUpdate(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = detailUpdate(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m, command = detailUpdate(t, m, detailKey("m"))
+	if !m.selected || m.choiceIndex != 3 || command == nil || calls != 0 {
+		t.Fatalf("selection=%d selected=%t calls=%d command present=%t", m.choiceIndex, m.selected, calls, command != nil)
+	}
+}
+
+func TestDetailsSelectionActionHintFitsTerminal(t *testing.T) {
+	for _, size := range [][2]int{{120, 30}, {80, 24}, {40, 12}, {24, 10}, {16, 8}} {
+		for _, details := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%dx%d/details=%t", size[0], size[1], details), func(t *testing.T) {
+				m := newDetailsModel(ChooserRequest{
+					ChoicePage: ChoicePage{Choices: []Choice{{Label: "First", Details: "Title: First"}}, NextToken: "next"},
+					Actions:    []ChooserAction{{Key: "m", Label: "MR BibTeX"}},
+					LoadPage:   func(context.Context, string) (ChoicePage, error) { return ChoicePage{}, nil },
+				})
+				m, _ = detailUpdate(t, m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+				if details {
+					m, _ = detailUpdate(t, m, tea.KeyMsg{Type: tea.KeyTab})
+				}
+				view := ansi.Strip(m.View())
+				if !strings.Contains(view, "MR BibTeX") || lipgloss.Height(view) > size[1] {
+					t.Fatalf("missing shortcut or overflowing height:\n%s", view)
+				}
+				for _, line := range strings.Split(view, "\n") {
+					if ansi.StringWidth(line) > size[0] {
+						t.Fatalf("line overflows: %q", line)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestDetailsPagingCachesPagesAndKeepsGlobalIndices(t *testing.T) {
 	loads := 0
 	m := newDetailsModel(ChooserRequest{ChoicePage: ChoicePage{Choices: []Choice{{Label: "First"}, {Label: "Second"}}, NextToken: "opaque", Total: 4},

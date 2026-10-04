@@ -29,6 +29,13 @@ type ChoicePage struct {
 	Total     int
 }
 
+// ChooserAction accepts the highlighted choice with an alternate key.
+// OnSelect runs after the selector closes successfully.
+type ChooserAction struct {
+	Key, Label string
+	OnSelect   func()
+}
+
 // ChooserRequest optionally loads further pages. Tokens belong to the caller;
 // the chooser caches visited pages and returns an index across all loaded choices.
 type ChooserRequest struct {
@@ -38,6 +45,7 @@ type ChooserRequest struct {
 	Context      context.Context
 	Output       io.Writer
 	Confirmation bool // A single candidate opens directly in its comparison details.
+	Actions      []ChooserAction
 }
 
 // ChooserPageSize requests enough results to fill the terminal's results pane.
@@ -131,6 +139,7 @@ type detailsModel struct {
 	loadStatus    string
 	choiceIndex   int
 	selected      bool
+	onSelect      func()
 	quitting      bool
 }
 
@@ -205,6 +214,14 @@ func (m *detailsModel) resize() {
 	m.refreshDetails(false)
 }
 
+func (m *detailsModel) selectChoice(onSelect func()) {
+	if _, ok := m.list.SelectedItem().(detailItem); ok {
+		m.choiceIndex = m.pages[m.pageIndex].offset + m.list.Index()
+		m.selected = true
+		m.onSelect = onSelect
+	}
+}
+
 func (m detailsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -246,10 +263,7 @@ func (m detailsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "enter":
-			if _, ok := m.list.SelectedItem().(detailItem); ok {
-				m.choiceIndex = m.pages[m.pageIndex].offset + m.list.Index()
-				m.selected = true
-			}
+			m.selectChoice(nil)
 			return m, tea.Quit
 		case "tab":
 			m.detailsFocus = !m.detailsFocus
@@ -278,6 +292,12 @@ func (m detailsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		}
+		for _, action := range m.request.Actions {
+			if msg.String() == action.Key {
+				m.selectChoice(action.OnSelect)
+				return m, tea.Quit
+			}
 		}
 	}
 	if m.loading {
@@ -363,6 +383,16 @@ func (m detailsModel) View() string {
 	} else if m.loadError != nil {
 		pages = m.theme.shortcut("n", "retry") + " · " + m.theme.warm.Render("Page failed: "+displayText(m.loadError.Error()))
 	}
+	if !m.loading && len(m.request.Actions) > 0 {
+		shortcuts := make([]string, 0, len(m.request.Actions)+1)
+		for _, action := range m.request.Actions {
+			shortcuts = append(shortcuts, m.theme.shortcut(action.Key, action.Label))
+		}
+		if pages != "" {
+			shortcuts = append(shortcuts, pages)
+		}
+		pages = strings.Join(shortcuts, " · ")
+	}
 	header := m.theme.brand.Render(" bibi ") + "  " + m.theme.accent.Render(displayText(m.request.Title))
 	view := strings.Join([]string{line(header), line(m.theme.muted.Render(status)), body, line(navigation), line(pages)}, "\n")
 	return lipgloss.NewStyle().MaxHeight(m.height).Render(view)
@@ -410,6 +440,9 @@ func runDetailedChooser(request ChooserRequest, openInput func() (io.ReadCloser,
 	}
 	if !m.selected {
 		return -1, nil
+	}
+	if m.onSelect != nil {
+		m.onSelect()
 	}
 	return m.choiceIndex, nil
 }

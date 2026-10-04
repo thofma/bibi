@@ -16,6 +16,7 @@ func newAddCommand(services func() searchServices, choose func(util.ChooserReque
 		Short: "Find a work and add its BibTeX to a bibliography file",
 		Long: `Find a work using the same discovery and BibTeX providers as search, then
 append its entry to a bibliography file. Quote multiword queries.
+Without --bib, press m in the search selector to retrieve MR BibTeX instead.
 
 Existing text is preserved. A shared DOI or database identifier skips a duplicate;
 a citation-key collision or conflicting identifiers stops the add.
@@ -62,7 +63,7 @@ Examples:
 		if err := bibfile.ValidateTarget(path, !dryRun); err != nil {
 			return fmt.Errorf("check bibliography %q: %w", path, err)
 		}
-		record, err := retrieveCitation(cmd, strings.TrimSpace(args[0]), services, choose)
+		record, _, err := retrieveCitation(cmd, strings.TrimSpace(args[0]), services, choose)
 		if err != nil {
 			return err
 		}

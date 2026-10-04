@@ -40,7 +40,8 @@ func newSearchCommand(services func() searchServices, choose func(util.ChooserRe
 		Long: `Search freely by author, title, year, or other citation terms, or supply a DOI.
 
 Discovery and BibTeX retrieval are independent. Both default to zbMATH Open.
-The requested BibTeX provider is always used; bibi never substitutes another.
+An explicit --bib choice is always used; bibi never substitutes another.
+Without --bib, press m in the search selector to retrieve MR BibTeX instead.
 MR BibTeX comes from the free MR Lookup service.
 Unverified provider matches always require confirmation. Verified single matches
 are selected automatically unless their edition or publication status changes.
@@ -64,11 +65,10 @@ Examples:
 			return fmt.Errorf("search query cannot be empty")
 		}
 
-		record, err := retrieveCitation(cmd, query, services, choose)
+		record, bibName, err := retrieveCitation(cmd, query, services, choose)
 		if err != nil {
 			return err
 		}
-		bibName, _ := cmd.Flags().GetString("bib")
 		diagnostics.Printf("writing %s BibTeX entry %s", bibName, record.Entry.CiteName)
 		if err := writeBibTeX(cmd, record.Entry, record.Journals); err != nil {
 			diagnostics.Printf("bib provider=%s stage=output failed: %v; provider lookup and matching succeeded", bibName, err)
@@ -100,7 +100,7 @@ func serviceDisplayName(name string) string {
 
 // retrieveCitation shares discovery, paging, selection and provider matching
 // between commands. The caller decides where the final entry is written.
-func retrieveCitation(cmd *cobra.Command, query string, services func() searchServices, choose func(util.ChooserRequest) (int, error)) (bibliography.Record, error) {
+func retrieveCitation(cmd *cobra.Command, query string, services func() searchServices, choose func(util.ChooserRequest) (int, error)) (bibliography.Record, string, error) {
 	discoveryName, _ := cmd.Flags().GetString("discovery")
 	bibName, _ := cmd.Flags().GetString("bib")
 	queryType := "free text"
@@ -111,11 +111,11 @@ func retrieveCitation(cmd *cobra.Command, query string, services func() searchSe
 	backends := services()
 	discoverer, ok := backends.discovery[discoveryName]
 	if !ok {
-		return bibliography.Record{}, fmt.Errorf("unknown discovery backend %q (choose zb or crossref)", discoveryName)
+		return bibliography.Record{}, bibName, fmt.Errorf("unknown discovery backend %q (choose zb or crossref)", discoveryName)
 	}
 	provider, ok := backends.bib[bibName]
 	if !ok {
-		return bibliography.Record{}, fmt.Errorf("unknown BibTeX provider %q (choose zb, mr, or crossref)", bibName)
+		return bibliography.Record{}, bibName, fmt.Errorf("unknown BibTeX provider %q (choose zb, mr, or crossref)", bibName)
 	}
 	if sized, ok := discoverer.(bibliography.PageSizeSetter); ok {
 		pageSize := util.ChooserPageSize(cmd.ErrOrStderr())
@@ -136,19 +136,25 @@ func retrieveCitation(cmd *cobra.Command, query string, services func() searchSe
 	spinner.Stop()
 	if err != nil {
 		diagnostics.Printf("bib provider=%s not queried: discovery request failed: %v", bibName, err)
-		return bibliography.Record{}, fmt.Errorf("search %s: %w", discoveryName, err)
+		return bibliography.Record{}, bibName, fmt.Errorf("search %s: %w", discoveryName, err)
 	}
 	works := page.Works
 	diagnostics.Printf("discovery %s returned %d works", discoveryName, len(works))
 	if len(works) == 0 {
 		diagnostics.Printf("bib provider=%s not queried: discovery returned no works", bibName)
-		return bibliography.Record{}, fmt.Errorf("no %s results found for %q", discoveryName, query)
+		return bibliography.Record{}, bibName, fmt.Errorf("no %s results found for %q", discoveryName, query)
 	}
 	var worksMu sync.Mutex
 	selected := 0
 	if len(works) > 1 || page.NextToken != "" {
 		request := util.ChooserRequest{Title: "Choose " + discoveryName + " result: " + query,
 			ChoicePage: workChoices(page), Context: cmd.Context(), Output: cmd.ErrOrStderr()}
+		if mrProvider, available := backends.bib["mr"]; available && !cmd.Flags().Changed("bib") {
+			request.Actions = []util.ChooserAction{{Key: "m", Label: "MR BibTeX", OnSelect: func() {
+				bibName, provider = "mr", mrProvider
+				diagnostics.Printf("discovery selection requested MR BibTeX")
+			}}}
+		}
 		if canPage {
 			request.LoadPage = func(ctx context.Context, token string) (util.ChoicePage, error) {
 				diagnostics.Printf("discovery %s loading next page token=%q", discoveryName, token)
@@ -170,18 +176,19 @@ func retrieveCitation(cmd *cobra.Command, query string, services func() searchSe
 		selected, err = selectSearchResult(request, choose)
 		if err != nil {
 			diagnostics.Printf("bib provider=%s not queried: discovery selection failed: %v", bibName, err)
-			return bibliography.Record{}, fmt.Errorf("choose discovery result: %w", err)
+			return bibliography.Record{}, bibName, fmt.Errorf("choose discovery result: %w", err)
 		}
 	}
 	worksMu.Lock()
 	if selected >= len(works) {
 		worksMu.Unlock()
-		return bibliography.Record{}, fmt.Errorf("invalid selection %d", selected)
+		return bibliography.Record{}, bibName, fmt.Errorf("invalid selection %d", selected)
 	}
 	work := works[selected]
 	worksMu.Unlock()
 	diagnostics.Printf("selected discovery result %d: %q DOI=%q IDs=%v", selected+1, work.Label(), work.DOI, work.IDs)
-	return retrieveProviderCitation(cmd, work, bibName, provider, choose)
+	record, err := retrieveProviderCitation(cmd, work, bibName, provider, choose)
+	return record, bibName, err
 }
 
 // retrieveProviderCitation matches and confirms exports from one explicitly
