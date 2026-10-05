@@ -57,9 +57,6 @@ Examples:
 	}
 	addSearchFlags(command)
 	command.RunE = withDebug(func(cmd *cobra.Command, args []string) error {
-		if _, err := journalStyle(cmd); err != nil {
-			return err
-		}
 		query := strings.TrimSpace(strings.Join(args, " "))
 		if query == "" {
 			return fmt.Errorf("search query cannot be empty")
@@ -70,7 +67,7 @@ Examples:
 			return err
 		}
 		diagnostics.Printf("writing %s BibTeX entry %s", bibName, record.Entry.CiteName)
-		if err := writeBibTeX(cmd, record.Entry, record.Journals); err != nil {
+		if err := writeBibTeX(cmd, record.Entry); err != nil {
 			diagnostics.Printf("bib provider=%s stage=output failed: %v; provider lookup and matching succeeded", bibName, err)
 			return err
 		}

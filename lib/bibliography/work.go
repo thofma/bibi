@@ -67,8 +67,7 @@ type ContextProvider interface {
 
 type Record struct {
 	Work
-	Entry    *bibtex.BibEntry
-	Journals JournalNames
+	Entry *bibtex.BibEntry
 }
 
 func (work Work) Label() string {

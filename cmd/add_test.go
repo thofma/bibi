@@ -31,7 +31,6 @@ func runAddTest(t *testing.T, args []string, services searchServices, choose fun
 		choose = func(util.ChooserRequest) (int, error) { t.Fatal("unexpected extra selector"); return 0, nil }
 	}
 	command := newAddCommand(func() searchServices { return services }, choose)
-	addBibTeXFlags(command)
 	addDebugFlag(command)
 	var output, stderr bytes.Buffer
 	command.SetOut(&output)
@@ -69,19 +68,18 @@ func TestAddProviderChoicesAndDuplicateNoOp(t *testing.T) {
 	}
 }
 
-func TestAddKeyDryRunAndJournalPreference(t *testing.T) {
+func TestAddKeyAndDryRunPreserveNativeJournal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "references.bib")
 	record := searchRecord("NativeKey", "")
-	record.Journals = bibliography.JournalNames{Full: "Full Journal Name", Short: "Full J."}
 	services := addTestServices(record, "zb", "mr")
-	args := []string{"local fields", path, "--bib", "mr", "--key", "Chosen:1999", "--journal", "short", "--dry-run"}
+	args := []string{"local fields", path, "--bib", "mr", "--key", "Chosen:1999", "--dry-run"}
 	output, stderr, err := runAddTest(t, args, services, nil)
 	if err != nil || !strings.Contains(stderr, "Would add Chosen:1999") {
 		t.Fatalf("stderr=%q error=%v", stderr, err)
 	}
 	assertMRBibTeX(t, output, "Chosen:1999")
-	if !strings.Contains(output, "Full J.") {
-		t.Fatalf("journal preference missing: %q", output)
+	if !strings.Contains(output, "Example Journal") {
+		t.Fatalf("native journal missing: %q", output)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("dry run created destination")
@@ -94,7 +92,7 @@ func TestAddKeyDryRunAndJournalPreference(t *testing.T) {
 		t.Fatalf("output=%q stderr=%q error=%v", output, stderr, err)
 	}
 	data, _ := os.ReadFile(path)
-	if !strings.Contains(string(data), "Full J.") {
+	if !strings.Contains(string(data), "Example Journal") {
 		t.Fatal("saved wrong journal")
 	}
 }
@@ -111,14 +109,13 @@ func TestAddValidationBeforeNetwork(t *testing.T) {
 		{"query", filepath.Join(dir, "absent", "refs.bib")},
 		{"query", filepath.Join(dir, "refs.bib"), "--key", "bad key"},
 		{"query", filepath.Join(dir, "refs.bib"), "--key", ""},
-		{"query", filepath.Join(dir, "refs.bib"), "--journal", "invented"},
+		{"query", filepath.Join(dir, "refs.bib"), "--journal", "short"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			command := newAddCommand(func() searchServices {
 				t.Fatal("performed lookup before validating add arguments/file")
 				return searchServices{}
 			}, nil)
-			addBibTeXFlags(command)
 			var output, stderr bytes.Buffer
 			command.SetOut(&output)
 			command.SetErr(&stderr)

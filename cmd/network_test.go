@@ -54,7 +54,6 @@ func TestRecoveredRequestsExportOrSaveExactlyOnce(t *testing.T) {
 				command = newAddCommand(services, choose)
 				args = append(args, path)
 			}
-			addBibTeXFlags(command)
 			addDebugFlag(command)
 			var stdout, stderr bytes.Buffer
 			command.SetOut(&stdout)
@@ -137,7 +136,6 @@ func TestBatchContinuesAfterRetryExhaustion(t *testing.T) {
 			return searchRecord("AfterFailure", "10.1000/second"), nil
 		}}
 	}, nil)
-	addBibTeXFlags(command)
 	addDebugFlag(command)
 	var stdout, stderr bytes.Buffer
 	command.SetOut(&stdout)

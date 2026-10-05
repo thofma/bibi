@@ -40,9 +40,6 @@ func (err *getBatchError) Error() string {
 func (err *getBatchError) Unwrap() []error { return err.failures }
 
 func runGet(cmd *cobra.Command, args []string, services func() getServices, choose func(util.ChooserRequest) (int, error)) error {
-	if _, err := journalStyle(cmd); err != nil {
-		return err
-	}
 	bibName, _ := cmd.Flags().GetString("bib")
 	switch bibName {
 	case "auto", "zb", "mr", "crossref":
@@ -108,7 +105,7 @@ func runGet(cmd *cobra.Command, args []string, services func() getServices, choo
 			return reportFailure(label, fmt.Errorf("citation key %q is already used by %s %s", record.Entry.CiteName, previous.Kind, previous.Value))
 		}
 		diagnostics.Printf("get writing BibTeX key=%q", record.Entry.CiteName)
-		if err := writeBibTeX(cmd, record.Entry, record.Journals); err != nil {
+		if err := writeBibTeX(cmd, record.Entry); err != nil {
 			return err // Broken output or diagnostic streams stop the batch.
 		}
 		keys[key] = identifier

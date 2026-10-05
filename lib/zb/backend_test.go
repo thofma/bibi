@@ -168,7 +168,7 @@ func TestBackendRetainsNativeRecordsForBibTeX(t *testing.T) {
 	if requests != 1 || records[0].Entry.Fields["volume"].String() != "42" {
 		t.Fatalf("requests = %d, fields = %+v", requests, records[0].Entry.Fields)
 	}
-	if records[0].Entry.Fields["number"].String() != "7" || records[0].Journals != (bibliography.JournalNames{Full: "Journal", Short: "J."}) {
+	if records[0].Entry.Fields["number"].String() != "7" || records[0].Entry.Fields["journal"].String() != "J." || records[0].Entry.Fields["fjournal"].String() != "Journal" {
 		t.Fatalf("issue number or journal names were lost: %+v", records[0])
 	}
 	if exact, _ := bibliography.Match(works[0], records[0].Work, "zb"); !exact {

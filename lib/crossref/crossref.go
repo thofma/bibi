@@ -26,7 +26,6 @@ var defaultClient = &http.Client{Timeout: 15 * time.Second}
 type Backend struct {
 	BaseURL    string
 	HTTPClient *http.Client
-	journals   map[string]bibliography.JournalNames
 	pageSize   int
 }
 
@@ -51,7 +50,6 @@ type item struct {
 	Title           []string      `json:"title"`
 	Subtitle        []string      `json:"subtitle"`
 	ContainerTitle  []string      `json:"container-title"`
-	ShortContainer  []string      `json:"short-container-title"`
 	Authors         []contributor `json:"author"`
 	Editors         []contributor `json:"editor"`
 	Published       date          `json:"published"`
@@ -96,7 +94,6 @@ func (backend *Backend) SearchPage(ctx context.Context, query, token string) (bi
 		if !matchesDOI {
 			return bibliography.SearchPage{}, fmt.Errorf("Crossref returned a different DOI for %q", doi)
 		}
-		backend.rememberJournals(payload.Message)
 		return bibliography.SearchPage{Works: []bibliography.Work{work}, Total: 1}, nil
 	}
 
@@ -127,7 +124,6 @@ func (backend *Backend) SearchPage(ctx context.Context, query, token string) (bi
 	}
 	works := make([]bibliography.Work, 0, len(payload.Message.Items))
 	for _, item := range payload.Message.Items {
-		backend.rememberJournals(item)
 		works = append(works, item.work())
 	}
 	page := bibliography.SearchPage{Works: works, Total: payload.Message.Total}
@@ -178,25 +174,7 @@ func (backend *Backend) BibTeXContext(ctx context.Context, work bibliography.Wor
 	// The exact DOI route establishes identity even if the export omits its DOI field.
 	candidate := bibliography.WorkFromEntry(entry)
 	candidate.DOI = doi
-	names := backend.journals[doi]
-	if full := field(entry, "journal"); full != "" {
-		names.Full = full
-	}
-	return []bibliography.Record{{Work: candidate, Entry: entry, Journals: names}}, nil
-}
-
-func (backend *Backend) rememberJournals(item item) {
-	if backend.journals == nil {
-		backend.journals = make(map[string]bibliography.JournalNames)
-	}
-	var names bibliography.JournalNames
-	if len(item.ContainerTitle) > 0 {
-		names.Full = bibliography.EscapeTeXText(item.ContainerTitle[0])
-	}
-	if len(item.ShortContainer) > 0 {
-		names.Short = bibliography.EscapeTeXText(item.ShortContainer[0])
-	}
-	backend.journals[bibliography.NormalizeDOI(item.DOI)] = names
+	return []bibliography.Record{{Work: candidate, Entry: entry}}, nil
 }
 
 func (backend *Backend) get(path string, values url.Values, accept string) ([]byte, bool, error) {

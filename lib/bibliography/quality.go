@@ -6,46 +6,6 @@ import (
 	"github.com/nickng/bibtex"
 )
 
-// JournalNames contains only names actually supplied by the BibTeX provider.
-// An empty name means the provider has not supplied that form.
-type JournalNames struct {
-	Full  string
-	Short string
-}
-
-// JournalNamesFromEntry reads the full and abbreviated names in MR-style exports.
-func JournalNamesFromEntry(entry *bibtex.BibEntry) JournalNames {
-	return JournalNames{Full: bibField(entry, "fjournal"), Short: bibField(entry, "journal")}
-}
-
-// WithJournalName returns an independent entry, preserving field spelling and
-// all other contents. Missing names leave the provider's journal unchanged.
-func WithJournalName(entry *bibtex.BibEntry, names JournalNames, style string) (*bibtex.BibEntry, string) {
-	copy := &bibtex.BibEntry{Type: entry.Type, CiteName: entry.CiteName, Fields: make(map[string]bibtex.BibString, len(entry.Fields))}
-	for key, value := range entry.Fields {
-		copy.Fields[key] = value
-	}
-	if style == "source" || (!strings.EqualFold(entry.Type, "article") && bibField(entry, "journal") == "") {
-		return copy, ""
-	}
-	name := names.Full
-	if style == "short" {
-		name = names.Short
-	}
-	if strings.TrimSpace(name) == "" {
-		return copy, "requested " + style + " journal name is unavailable; keeping the provider's journal"
-	}
-	key := "journal"
-	for existing := range copy.Fields {
-		if strings.EqualFold(existing, key) {
-			key = existing
-			break
-		}
-	}
-	copy.AddField(key, bibtex.NewBibConst(name))
-	return copy, ""
-}
-
 // MissingFields checks the standard BibTeX required fields, without treating
 // optional identifiers, issue numbers, or page ranges as mandatory.
 func MissingFields(entry *bibtex.BibEntry) []string {

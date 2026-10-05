@@ -39,9 +39,6 @@ var hexhexCmd = &cobra.Command{
 }
 
 func runZB(cmd *cobra.Command, args []string) error {
-	if _, err := journalStyle(cmd); err != nil {
-		return err
-	}
 	query := strings.TrimSpace(strings.Join(args, " "))
 	if query == "" {
 		return fmt.Errorf("zbMath search query cannot be empty")
@@ -87,7 +84,7 @@ func runZB(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create BibTeX entry: %w", err)
 	}
 	diagnostics.Printf("writing zbMATH result %d: %q, key=%s", selected+1, zbChoiceLabel(results[selected]), entry.CiteName)
-	return writeBibTeX(cmd, entry, zb.ItemJournalNames(results[selected]))
+	return writeBibTeX(cmd, entry)
 }
 
 func zbChoiceLabel(item zb.Item) string {

@@ -107,7 +107,7 @@ func TestGetRejectsInvalidOptionsBeforeLookup(t *testing.T) {
 	for _, args := range [][]string{
 		{}, {"one", "two"}, {"serre local fields"}, {"https://example.org/2301.12345"},
 		{"2301.12345", "--bib", "unknown"}, {"10.1000/example", "--published"},
-		{"2301.12345", "--journal", "unknown"},
+		{"2301.12345", "--journal", "short"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			root := debugTestRoot(newGetCommand(func() getServices {
@@ -195,14 +195,14 @@ func TestGetFailuresNeverFallbackOrPrintBibTeX(t *testing.T) {
 	}
 }
 
-func TestGetDebugAndJournalPreferencePreserveCleanStdout(t *testing.T) {
+func TestGetDebugPreservesNativeJournalAndCleanStdout(t *testing.T) {
 	services := getServices{
 		doiMetadata: func(context.Context, string) (bibliography.Work, error) {
 			return bibliography.Work{Title: "A selected work", DOI: "10.1000/example"}, nil
 		},
 		bib: map[string]bibliography.Provider{"mr": fakeProvider(func(bibliography.Work) ([]bibliography.Record, error) {
 			record := searchRecord("MR1", "10.1000/example")
-			record.Journals = bibliography.JournalNames{Full: "Full Journal", Short: "Abbr. J."}
+			record.Entry.AddField("journal", bibtex.NewBibConst("Abbr. J."))
 			return []bibliography.Record{record}, nil
 		})},
 	}
@@ -210,7 +210,7 @@ func TestGetDebugAndJournalPreferencePreserveCleanStdout(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	root.SetArgs([]string{"--debug", "get", "10.1000/example", "--bib", "mr", "--journal", "short"})
+	root.SetArgs([]string{"--debug", "get", "10.1000/example", "--bib", "mr"})
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
 	}

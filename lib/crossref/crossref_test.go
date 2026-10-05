@@ -153,7 +153,7 @@ func TestSearchDOIAcceptsOnlyExplicitAliases(t *testing.T) {
 			}
 			records, err := backend.BibTeX(works[0])
 			if err != nil || len(records) != 1 || records[0].DOI != test.canonical || requests != 2 ||
-				records[0].Journals.Full != "The American Mathematical Monthly" || records[0].Entry.Fields["month"].String() != "June" {
+				records[0].Entry.Fields["journal"] != nil || records[0].Entry.Fields["month"].String() != "June" {
 				t.Fatalf("canonical export: records=%+v error=%v requests=%d", records, err, requests)
 			}
 			if exact, _ := bibliography.Match(works[0], records[0].Work, "crossref"); !exact {
@@ -194,7 +194,7 @@ func TestBibTeXRetrievesCrossrefExport(t *testing.T) {
 	}
 }
 
-func TestBibTeXRetainsJournalNamesFromDiscovery(t *testing.T) {
+func TestBibTeXPreservesExportedJournalAfterDiscovery(t *testing.T) {
 	for _, query := range []string{"free text", "10.1000/example"} {
 		t.Run(query, func(t *testing.T) {
 			requests := 0
@@ -222,11 +222,10 @@ func TestBibTeXRetainsJournalNamesFromDiscovery(t *testing.T) {
 			if err != nil || len(records) != 1 {
 				t.Fatalf("records = %+v, error = %v", records, err)
 			}
-			want := bibliography.JournalNames{Full: `Algebra \& Geometry`, Short: "Alg. Geom."}
-			if records[0].Journals != want || requests != 2 {
-				t.Errorf("journals = %+v, requests = %d", records[0].Journals, requests)
+			if requests != 2 {
+				t.Errorf("requests = %d, want 2", requests)
 			}
-			if got := records[0].Entry.Fields["journal"].String(); got != want.Full {
+			if got := records[0].Entry.Fields["journal"].String(); got != `Algebra \& Geometry` {
 				t.Errorf("native export was changed: %q", got)
 			}
 		})

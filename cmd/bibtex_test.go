@@ -7,7 +7,6 @@ import (
 
 	"github.com/nickng/bibtex"
 	"github.com/spf13/cobra"
-	"github.com/thofma/bibi/lib/bibliography"
 )
 
 func TestFormatBibTeXPreservesFieldContents(t *testing.T) {
@@ -57,7 +56,7 @@ func TestWriteBibTeXWarnsWithoutChangingOutputFlow(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command.SetOut(&stdout)
 	command.SetErr(&stderr)
-	if err := writeBibTeX(command, entry, bibliography.JournalNames{}); err != nil {
+	if err := writeBibTeX(command, entry); err != nil {
 		t.Fatal(err)
 	}
 	assertMRBibTeX(t, stdout.String(), "Incomplete")
@@ -73,7 +72,7 @@ func TestWriteBibTeXPreservesNativeExports(t *testing.T) {
 	const source = `@article{MR1,
   AUTHOR = {van der Waerden, B. L. and G{\"o}del, Kurt and Ducas, L\'eo},
   TITLE = {An {ABC} theorem on {$GL_2(\mathbb{Q})$} and {Galois} theory},
-  JOURNAL = {Algebra \& Number Theory},
+  JOURNAL = {Alg. Number Theory},
   FJOURNAL = {Algebra \& Number Theory},
   YEAR = {1999},
   NOTE = {Göttingen and Léo},
@@ -88,7 +87,7 @@ func TestWriteBibTeXPreservesNativeExports(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command.SetOut(&stdout)
 	command.SetErr(&stderr)
-	if err := writeBibTeX(command, entry, bibliography.JournalNamesFromEntry(entry)); err != nil {
+	if err := writeBibTeX(command, entry); err != nil {
 		t.Fatal(err)
 	}
 	output, err := bibtex.Parse(strings.NewReader(stdout.String()))

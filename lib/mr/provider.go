@@ -44,7 +44,7 @@ func (Provider) BibTeXContext(ctx context.Context, work bibliography.Work) ([]bi
 		if entry.Doi != nil {
 			candidate.DOI = *entry.Doi
 		}
-		records = append(records, bibliography.Record{Work: candidate, Entry: entry.BibTeX, Journals: bibliography.JournalNamesFromEntry(entry.BibTeX)})
+		records = append(records, bibliography.Record{Work: candidate, Entry: entry.BibTeX})
 	}
 	return records, nil
 }

@@ -48,9 +48,6 @@ Examples:
 	command.Flags().String("key", "", "Citation key for the new entry (default: provider's key)")
 	command.Flags().Bool("dry-run", false, "Print the proposed entry without changing or creating the file")
 	command.RunE = withDebug(func(cmd *cobra.Command, args []string) error {
-		if _, err := journalStyle(cmd); err != nil {
-			return err
-		}
 		key, _ := cmd.Flags().GetString("key")
 		if cmd.Flags().Changed("key") {
 			if err := bibfile.ValidateKey(key); err != nil {
@@ -74,7 +71,7 @@ Examples:
 		if err := bibfile.ValidateKey(input.CiteName); err != nil {
 			return err
 		}
-		entry, err := prepareBibTeX(cmd, &input, record.Journals)
+		entry, err := prepareBibTeX(cmd, &input)
 		if err != nil {
 			return err
 		}

@@ -31,9 +31,6 @@ Examples:
 }
 
 func runPhD(cmd *cobra.Command, args []string) error {
-	if _, err := journalStyle(cmd); err != nil {
-		return err
-	}
 	name := strings.TrimSpace(strings.Join(args, " "))
 	if name == "" {
 		return fmt.Errorf("a mathematician name is required")
@@ -81,7 +78,7 @@ func runPhD(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("selected PhD result has no BibTeX entry")
 	}
 	diagnostics.Printf("writing PhD result %d: %q, key=%s", selected+1, phdChoiceLabel(entries[selected]), bib.CiteName)
-	return writeBibTeX(cmd, bib, bibliography.JournalNames{})
+	return writeBibTeX(cmd, bib)
 }
 
 func phdChoiceLabel(entry phd.MGPEntry) string {

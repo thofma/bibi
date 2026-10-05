@@ -50,13 +50,7 @@ func (backend *Backend) Lookup(ctx context.Context, query string) (bibliography.
 		return bibliography.Record{}, fmt.Errorf("DOI export has a different DOI: requested %q, received %q", doi, work.DOI)
 	}
 	work.DOI = doi // The exact resolver route establishes identity if the field is absent.
-	names := bibliography.JournalNamesFromEntry(entry)
-	if names.Full == "" {
-		// DOI exports normally contain a full journal name without fjournal.
-		// No abbreviation is available unless a separate full name is supplied.
-		names.Full, names.Short = names.Short, ""
-	}
-	return bibliography.Record{Work: work, Entry: entry, Journals: names}, nil
+	return bibliography.Record{Work: work, Entry: entry}, nil
 }
 
 // Metadata requests CSL metadata, rather than another provider's BibTeX, when

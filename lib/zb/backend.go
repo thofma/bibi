@@ -108,7 +108,7 @@ func (backend *Backend) BibTeXContext(ctx context.Context, work bibliography.Wor
 					diagnostics.Printf("bib zb stage=conversion failed: ID=%d type=%q title=%q error=%v", item.ID, item.DocumentType.Code, ItemGetTitle(item), err)
 					return nil, err
 				}
-				return []bibliography.Record{{Work: ItemWork(item), Entry: entry, Journals: ItemJournalNames(item)}}, nil
+				return []bibliography.Record{{Work: ItemWork(item), Entry: entry}}, nil
 			}
 		}
 	}
@@ -141,7 +141,7 @@ func (backend *Backend) BibTeXContext(ctx context.Context, work bibliography.Wor
 			diagnostics.Printf("bib zb stage=conversion failed: ID=%d type=%q title=%q error=%v", item.ID, item.DocumentType.Code, ItemGetTitle(item), err)
 			return nil, err
 		}
-		records = append(records, bibliography.Record{Work: candidate, Entry: entry, Journals: ItemJournalNames(item)})
+		records = append(records, bibliography.Record{Work: candidate, Entry: entry})
 	}
 	if len(records) == 0 && len(response.Result) > 0 {
 		diagnostics.Printf("bib zb stage=matching failed: all %d native records had conflicting DOIs", len(response.Result))

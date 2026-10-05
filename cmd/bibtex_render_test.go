@@ -14,7 +14,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/thofma/bibi/lib/arxiv"
-	"github.com/thofma/bibi/lib/bibliography"
 	"github.com/thofma/bibi/lib/phd"
 	"github.com/thofma/bibi/lib/zb"
 )
@@ -37,7 +36,6 @@ func TestBibTeXRendering(t *testing.T) {
 		Source:       zb.Source{Pages: "1-9", Series: []zb.Series{{Title: "Algebra & Number Theory", ShortTitle: "Alg. Number Theory", Issue: "3", Volume: "42"}}},
 	}
 	command := &cobra.Command{}
-	command.Flags().String("journal", "full", "")
 	var output, warnings bytes.Buffer
 	command.SetOut(&output)
 	command.SetErr(&warnings)
@@ -47,13 +45,13 @@ func TestBibTeXRendering(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := writeBibTeX(command, entry, zb.ItemJournalNames(item)); err != nil {
+		if err := writeBibTeX(command, entry); err != nil {
 			t.Fatal(err)
 		}
 		item.ID++
 	}
 	thesis := phd.CreateBibEntryForThesis("Doe, Jane", "2000", `ABC, Galois groups & \(GL_2\)`, "School of Algebra & Geometry")
-	if err := writeBibTeX(command, thesis, bibliography.JournalNames{}); err != nil {
+	if err := writeBibTeX(command, thesis); err != nil {
 		t.Fatal(err)
 	}
 	arxivServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +68,7 @@ func TestBibTeXRendering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBibTeX(command, preprint.Entry, preprint.Journals); err != nil {
+	if err := writeBibTeX(command, preprint.Entry); err != nil {
 		t.Fatal(err)
 	}
 	if warnings.Len() != 0 {
@@ -104,7 +102,7 @@ func TestBibTeXRendering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`Galois groups of \(GL_2(K)\) \& 100\% results`, `\LaTeX and Galois theory`, `Brinch~Hansen`, `G{\"o}del`, `Léo`, `Algebra \& Number Theory`, `School of Algebra \& Geometry`, `ArXiv ABC, Galois groups \& \(GL_2\)`, `arXiv preprint arXiv:0704.0001v2`} {
+	for _, want := range []string{`Galois groups of \(GL_2(K)\) \& 100\% results`, `\LaTeX and Galois theory`, `Brinch~Hansen`, `G{\"o}del`, `Léo`, `Alg. Number Theory`, `School of Algebra \& Geometry`, `ArXiv ABC, Galois groups \& \(GL_2\)`, `arXiv preprint arXiv:0704.0001v2`} {
 		if !strings.Contains(string(bbl), want) {
 			t.Errorf("typeset bibliography is missing %q:\n%s", want, bbl)
 		}

@@ -226,19 +226,6 @@ func ItemGetSeriesIssue(item Item) string {
 	return availableText(series.Issue)
 }
 
-// ItemJournalNames keeps the two supplied journal names distinct even when the
-// default journal field falls back to the full name for lack of an abbreviation.
-func ItemJournalNames(item Item) bibliography.JournalNames {
-	series, ok := firstSeries(item)
-	if !ok || item.DocumentType.Code != "j" {
-		return bibliography.JournalNames{}
-	}
-	return bibliography.JournalNames{
-		Full:  bibliography.EscapeTeXText(availableText(series.Title)),
-		Short: bibliography.EscapeTeXText(availableText(series.ShortTitle)),
-	}
-}
-
 func ItemGetSeriesYear(item Item) string {
 	series, ok := firstSeries(item)
 	if !ok {

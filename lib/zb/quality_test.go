@@ -33,10 +33,3 @@ func TestGeneratedArticleRetainsIssueAndProtectsText(t *testing.T) {
 		t.Errorf("complete article has missing fields: %v", missing)
 	}
 }
-
-func TestJournalNamesDoNotInventMissingAbbreviations(t *testing.T) {
-	item := Item{DocumentType: DocumentType{Code: "j"}, Source: Source{Series: []Series{{Title: "Full Journal Name"}}}}
-	if names := ItemJournalNames(item); names.Full != "Full Journal Name" || names.Short != "" {
-		t.Errorf("names = %+v", names)
-	}
-}

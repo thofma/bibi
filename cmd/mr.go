@@ -32,9 +32,6 @@ Examples:
 }
 
 func runMR(cmd *cobra.Command, args []string) error {
-	if _, err := journalStyle(cmd); err != nil {
-		return err
-	}
 	if len(args) < 1 || len(args) > 3 {
 		return fmt.Errorf("expected one to three MR search arguments")
 	}
@@ -92,7 +89,7 @@ func runMR(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("MR result %d has no BibTeX entry", selected+1)
 	}
 	diagnostics.Printf("writing MR result %d: %q, key=%s", selected+1, mrChoiceLabel(entry), entry.BibTeX.CiteName)
-	return writeBibTeX(cmd, entry.BibTeX, bibliography.JournalNamesFromEntry(entry.BibTeX))
+	return writeBibTeX(cmd, entry.BibTeX)
 }
 
 func mrChoiceLabel(entry *mr.Entry) string {

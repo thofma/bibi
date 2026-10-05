@@ -38,5 +38,4 @@ func commandExitCode(command *cobra.Command) int {
 func init() {
 	rootCmd.SetVersionTemplate("bibi {{.Version}}\n")
 	addDebugFlag(rootCmd)
-	addBibTeXFlags(rootCmd)
 }

@@ -53,13 +53,11 @@ func TestDOILookupFollowsRegistrationAgencyRedirect(t *testing.T) {
 	for field, want := range map[string]string{
 		"title": "Galois groups of $GL_2(K)$", "author": "Ducas, Léo",
 		"note": `Keep \LaTeX{} & native fields`, "DOI": "10.1000/Example", "month": "December",
+		"journal": "Full Journal Name",
 	} {
 		if got := record.Entry.Fields[field].String(); got != want {
 			t.Errorf("native field %s = %q, want %q", field, got, want)
 		}
-	}
-	if record.Journals != (bibliography.JournalNames{Full: "Full Journal Name"}) {
-		t.Errorf("journals = %+v", record.Journals)
 	}
 }
 

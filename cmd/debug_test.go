@@ -19,7 +19,6 @@ import (
 func debugTestRoot(command *cobra.Command) *cobra.Command {
 	root := &cobra.Command{Use: "bibi", SilenceUsage: true}
 	addDebugFlag(root)
-	addBibTeXFlags(root)
 	root.AddCommand(command)
 	return root
 }

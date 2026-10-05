@@ -29,7 +29,7 @@
   - [Add to a bibliography](#add-to-a-bibliography)
   - [Journal abbreviations](#journal-abbreviations)
   - [Other lookup commands](#other-lookup-commands)
-  - [BibTeX options](#bibtex-options)
+  - [BibTeX output](#bibtex-output)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 
@@ -201,18 +201,9 @@ Find a mathematician's thesis through the Mathematics Genealogy Project:
 bibi phd "carl gauss"
 ```
 
-### BibTeX options
+### BibTeX output
 
-Choose a journal-name preference for any lookup:
-
-```sh
-bibi search "local fields" --journal full
-bibi search "local fields" --journal short
-```
-
-`--journal source` is the default and uses the provider's journal name. Choose
-`full` or `short` for the corresponding form, when available. Otherwise, the
-original name is kept.
+BibTeX exports preserve the journal names supplied by the provider.
 
 Warnings about incomplete entries do not prevent exporting or saving the BibTeX.
 
